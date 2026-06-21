@@ -56,6 +56,19 @@
 
 :root {
   --radius: 0.75rem;
+
+  /* Font stacks as real CSS custom properties (used in inline styles) */
+  --font-headline: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Brand colour tokens as real CSS custom properties */
+  --color-deep-space: #0A0F1C;
+  --color-midnight: #0D1425;
+  --color-bio-teal: #10B981;
+  --color-bio-cyan: #06B6D4;
+  --color-bio-violet: #8B5CF6;
+  --color-bio-amber: #F59E0B;
   --background: #0A0F1C;
   --foreground: #F0F4F8;
   --card: #141E33;
