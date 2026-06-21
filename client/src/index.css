@@ -1,11 +1,16 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+/* ═══════════════════════════════════════════════════════════
+   notus.is — HIV Protease Discovery Engine
+   Design system: protein-bank-live exact port
+   Palette: deep-space dark · bio-teal · bio-cyan · bio-violet · bio-amber
+   Fonts: Space Grotesk (headline) · Inter (body) · JetBrains Mono (mono)
+   ═══════════════════════════════════════════════════════════ */
 
 @custom-variant dark (&:is(.dark *));
 
-/* ─── notus.is Design Tokens ─────────────────────────────────────────────── */
-/* Dark biotech theme: deep-space backgrounds, emerald teal accent, mono type */
+/* Google Fonts loaded in index.html */
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
@@ -27,120 +32,270 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  /* Brand colours */
-  --color-bio-teal: oklch(0.72 0.17 162);
-  --color-bio-cyan: oklch(0.70 0.15 200);
-  --color-bio-violet: oklch(0.60 0.22 290);
-  --color-bio-amber: oklch(0.78 0.17 80);
-  --color-deep-space: oklch(0.12 0.015 260);
-  --color-midnight: oklch(0.14 0.015 260);
+  /* protein-bank-live brand tokens */
+  --color-deep-space: #0A0F1C;
+  --color-midnight: #0D1425;
+  --color-slate-800: #141E33;
+  --color-slate-700: #1E2D47;
+  --color-bio-teal: #10B981;
+  --color-bio-cyan: #06B6D4;
+  --color-bio-violet: #8B5CF6;
+  --color-bio-amber: #F59E0B;
+  --color-text-primary: #F0F4F8;
+  --color-text-secondary: #94A3B8;
+  --color-text-muted: #64748B;
 
-  /* Fonts */
   --font-headline: 'Space Grotesk', system-ui, sans-serif;
   --font-body: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(0.12 0.015 260);
-  --foreground: oklch(0.95 0.005 220);
-  --card: oklch(0.14 0.015 260);
-  --card-foreground: oklch(0.95 0.005 220);
-  --popover: oklch(0.14 0.015 260);
-  --popover-foreground: oklch(0.95 0.005 220);
-  --primary: oklch(0.72 0.17 162);
-  --primary-foreground: oklch(0.12 0.015 260);
-  --secondary: oklch(0.18 0.015 260);
-  --secondary-foreground: oklch(0.95 0.005 220);
-  --muted: oklch(0.18 0.015 260);
-  --muted-foreground: oklch(0.60 0.010 260);
-  --accent: oklch(0.18 0.015 260);
-  --accent-foreground: oklch(0.95 0.005 220);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.22 0.012 260);
-  --input: oklch(0.22 0.012 260);
-  --ring: oklch(0.72 0.17 162);
+  --radius: 0.75rem;
+  --background: #0A0F1C;
+  --foreground: #F0F4F8;
+  --card: #141E33;
+  --card-foreground: #F0F4F8;
+  --popover: #141E33;
+  --popover-foreground: #F0F4F8;
+  --primary: #10B981;
+  --primary-foreground: #0A0F1C;
+  --secondary: #1E2D47;
+  --secondary-foreground: #F0F4F8;
+  --muted: #1E2D47;
+  --muted-foreground: #94A3B8;
+  --accent: #1E2D47;
+  --accent-foreground: #F0F4F8;
+  --destructive: #EF4444;
+  --border: #1E2D47;
+  --input: #1E2D47;
+  --ring: #10B981;
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-  }
-  html {
-    scroll-behavior: smooth;
+    box-sizing: border-box;
   }
   body {
-    @apply bg-background text-foreground;
-    font-family: var(--font-body);
+    background-color: #0A0F1C;
+    color: #F0F4F8;
+    font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    overflow-x: hidden;
   }
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-headline);
+    font-family: 'Space Grotesk', system-ui, sans-serif;
   }
   code, pre, .font-mono {
-    font-family: var(--font-mono);
-  }
-  ::selection {
-    background-color: oklch(0.72 0.17 162 / 0.3);
-    color: oklch(0.95 0.005 220);
+    font-family: 'JetBrains Mono', monospace;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   a[href] {
-    @apply cursor-pointer;
+    cursor: pointer;
   }
 }
 
 @layer components {
+  /* ── Container ── */
   .container {
     width: 100%;
+    max-width: 1280px;
     margin-left: auto;
     margin-right: auto;
-    padding-left: 1rem;
-    padding-right: 1rem;
+    padding-left: 24px;
+    padding-right: 24px;
   }
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 48px;
+      padding-right: 48px;
+    }
+  }
+
   .flex {
     min-height: 0;
     min-width: 0;
   }
-  @media (min-width: 640px) {
-    .container { padding-left: 1.5rem; padding-right: 1.5rem; }
-  }
-  @media (min-width: 1024px) {
-    .container { padding-left: 2rem; padding-right: 2rem; max-width: 1280px; }
+
+  /* ── Section label — protein-bank-live pattern ── */
+  .section-label {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #10B981;
   }
 
-  /* notus.is brand utilities */
-  .section-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--color-bio-teal);
-    text-transform: uppercase;
-    letter-spacing: 2.5px;
-  }
-  .glow-teal {
-    background: radial-gradient(circle, oklch(0.72 0.17 162 / 0.15) 0%, transparent 70%);
-  }
+  /* ── Hero mesh background ── */
   .hero-mesh {
-    background: linear-gradient(135deg,
-      oklch(0.12 0.015 260) 0%,
-      oklch(0.14 0.015 260) 40%,
-      oklch(0.13 0.018 250) 70%,
-      oklch(0.12 0.015 260) 100%);
+    background: linear-gradient(135deg, #0A0F1C 0%, #0D1425 40%, #0A1628 70%, #0A0F1C 100%);
   }
+
+  /* ── Card shine ── */
   .card-shine {
-    background: linear-gradient(135deg,
-      oklch(0.72 0.17 162 / 0.05) 0%,
-      oklch(0.70 0.15 200 / 0.05) 50%,
-      transparent 100%);
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(6, 182, 212, 0.05) 50%, transparent 100%);
+  }
+
+  /* ── Pill button primary ── */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 9999px;
+    background-color: #10B981;
+    padding: 14px 32px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: #0A0F1C;
+    transition: all 0.25s;
+  }
+  .btn-primary:hover {
+    filter: brightness(1.1);
+    transform: scale(1.03);
+    box-shadow: 0 0 40px rgba(16, 185, 129, 0.15);
+  }
+
+  /* ── Pill button outline ── */
+  .btn-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 9999px;
+    border: 1px solid #10B981;
+    padding: 14px 32px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: #10B981;
+    transition: all 0.25s;
+  }
+  .btn-outline:hover {
+    background-color: rgba(16, 185, 129, 0.1);
+    transform: scale(1.03);
+  }
+
+  /* ── Stat card ── */
+  .stat-card {
+    border-radius: 16px;
+    border: 1px solid #1E2D47;
+    background-color: #141E33;
+    padding: 24px;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .stat-card:hover {
+    border-color: rgba(16, 185, 129, 0.3);
+    box-shadow: 0 8px 32px rgba(16, 185, 129, 0.08);
+  }
+
+  /* ── Step card ── */
+  .step-card {
+    border-radius: 16px;
+    border: 1px solid #1E2D47;
+    background-color: #141E33;
+    padding: 32px;
+    transition: border-color 0.3s;
+  }
+  .step-card:hover {
+    border-color: rgba(16, 185, 129, 0.3);
+  }
+
+  /* ── Candidate card ── */
+  .candidate-card {
+    border-radius: 16px;
+    border: 1px solid #1E2D47;
+    background-color: #141E33;
+    padding: 24px;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .candidate-card:hover {
+    border-color: rgba(16, 185, 129, 0.3);
+    box-shadow: 0 8px 32px rgba(16, 185, 129, 0.08);
+  }
+
+  /* ── Live dot ── */
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background-color: #10B981;
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+
+  /* ── Track badge ── */
+  .track-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
   }
 }
+
+@layer utilities {
+  .container-padding {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  @media (min-width: 1024px) {
+    .container-padding {
+      padding-left: 48px;
+      padding-right: 48px;
+    }
+  }
+
+  .text-bio-teal { color: #10B981; }
+  .text-bio-cyan { color: #06B6D4; }
+  .text-bio-violet { color: #8B5CF6; }
+  .text-bio-amber { color: #F59E0B; }
+  .text-text-primary { color: #F0F4F8; }
+  .text-text-secondary { color: #94A3B8; }
+  .text-text-muted { color: #64748B; }
+
+  .bg-deep-space { background-color: #0A0F1C; }
+  .bg-midnight { background-color: #0D1425; }
+  .bg-slate-800-custom { background-color: #141E33; }
+  .bg-slate-700-custom { background-color: #1E2D47; }
+
+  .border-slate-700-custom { border-color: #1E2D47; }
+  .border-bio-teal { border-color: #10B981; }
+
+  .shadow-glow-teal { box-shadow: 0 0 40px rgba(16, 185, 129, 0.15); }
+  .shadow-glow-cyan { box-shadow: 0 0 40px rgba(6, 182, 212, 0.12); }
+}
+
+/* ── Keyframes ── */
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.5); opacity: 0.3; }
+}
+
+@keyframes fade-up {
+  0% { transform: translateY(40px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.05; }
+  50% { opacity: 0.12; }
+}
+
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-fade-up { animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-glow-pulse { animation: glow-pulse 4s ease-in-out infinite; }
+.animate-ticker { animation: ticker 30s linear infinite; }
+.animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
