@@ -23,7 +23,7 @@ export default function Footer() {
             </p>
             <div className="flex gap-4">
               <a
-                href="https://github.com/Gudmundur76/novus-is"
+                href="https://github.com/Gudmundur76/asi-evolve-discovery-engine"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: "#64748B", transition: "color 0.2s" }}
@@ -75,7 +75,7 @@ export default function Footer() {
             © {new Date().getFullYear()} notus.is · Iceland
           </p>
           <p style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#64748B" }}>
-            Verification: citation.manus.space · Engine: novus-is
+            Verification: citation.manus.space · Engine: asi-evolve
           </p>
         </div>
       </div>

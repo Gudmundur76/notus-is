@@ -193,13 +193,13 @@ export default function Contact() {
                   All engine code is open source on GitHub. The day-30 finding will be published under CC BY 4.0.
                 </p>
                 <a
-                  href="https://github.com/Gudmundur76/novus-is"
+                  href="https://github.com/Gudmundur76/asi-evolve-discovery-engine"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 transition-colors"
                   style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "#10B981" }}
                 >
-                  <Github size={14} /> Gudmundur76/novus-is
+                  <Github size={14} /> Gudmundur76/asi-evolve-discovery-engine
                 </a>
               </div>
 

@@ -44,7 +44,7 @@ const steps = [
 ];
 
 const techStack = [
-  { name: "novus-is", desc: "Generation engine — RDKit, sklearn, 4-track micro-loop", url: "https://github.com/Gudmundur76/novus-is" },
+  { name: "asi-evolve", desc: "Generation engine — RDKit, sklearn, 4-track micro-loop", url: "https://github.com/Gudmundur76/asi-evolve-discovery-engine" },
   { name: "citation.manus.space", desc: "Verification backend — ttruthdesk-platform, 8-stage pipeline", url: "https://citation.manus.space" },
   { name: "ASI-Evolve", desc: "UCB1 exploration strategy, cognition store", url: "https://github.com/GAIR-NLP/ASI-Evolve" },
   { name: "notus-is", desc: "Publication frontend — React, Tailwind, Manus webdev", url: "https://github.com/Gudmundur76/notus-is" },

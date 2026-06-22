@@ -359,7 +359,7 @@ function CTASection() {
           className="mt-10 flex flex-wrap justify-center gap-4"
         >
           <a
-            href="https://github.com/Gudmundur76/novus-is"
+            href="https://github.com/Gudmundur76/asi-evolve-discovery-engine"
             target="_blank"
             rel="noopener noreferrer"
             className="btn-primary"
