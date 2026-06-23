@@ -44,6 +44,7 @@ import {
   buildCandidateClaims,
   createRealCitationClient,
 } from "../discovery/candidate-claim";
+import { evolveDiscoveryQuery } from "../discovery/query-evolver";
 import { TRPCError } from "@trpc/server";
 
 export const discoveryRouter = router({
@@ -615,4 +616,81 @@ export const discoveryRouter = router({
 
     return results;
   }),
+
+  // ── Query Evolution ──────────────────────────────────────────────────────────────────────────────────
+  /**
+   * Evolve the discovery query for the next cycle.
+   * Accepts optional overrides for previousQuery, lessons, supportedClaims,
+   * and contradictedClaims.  When not provided, the procedure reads the most
+   * recent evolve_nodes analysis and citation verdicts from the database.
+   *
+   * Returns the full EvolvedQuery object including rationale and themes.
+   */
+  evolveQuery: protectedProcedure
+    .input(
+      z.object({
+        previousQuery: z.string().optional(),
+        lessons: z.array(z.string()).optional(),
+        supportedClaims: z.array(z.string()).optional(),
+        contradictedClaims: z.array(z.string()).optional(),
+      }).optional()
+    )
+    .mutation(async ({ input }) => {
+      const db = getDb();
+
+      // Resolve inputs: use provided values or read from DB
+      let previousQuery = input?.previousQuery ?? "";
+      let lessons = input?.lessons ?? [];
+      let supportedClaims = input?.supportedClaims ?? [];
+      let contradictedClaims = input?.contradictedClaims ?? [];
+
+      if (!previousQuery || lessons.length === 0) {
+        // Read the most recent evolve_nodes for lessons and citation verdicts
+        try {
+          const runId = await getOrCreateRun("hiv-protease-run-1");
+          const allNodesList = await getAllNodes(runId);
+          const recentNodes = allNodesList.slice(-10).reverse();
+
+          if (!previousQuery) {
+            // Use the evolved query from the most recent node, or the best node's motivation
+            const latestWithQuery = recentNodes.find(
+              (n) => (n.metadata as any)?.evolvedQuery
+            );
+            previousQuery =
+              (latestWithQuery?.metadata as any)?.evolvedQuery ??
+              "HIV-1 protease inhibitor small molecule binding affinity pIC50 scaffold design";
+          }
+
+          if (lessons.length === 0) {
+            lessons = recentNodes
+              .filter((n) => n.analysis && n.analysis.length > 20)
+              .slice(0, 5)
+              .map((n) => n.analysis!);
+          }
+
+          if (supportedClaims.length === 0 || contradictedClaims.length === 0) {
+            for (const n of recentNodes) {
+              const verdict = (n.metadata as any)?.citationVerdict as string | undefined;
+              const claim = `${n.name}: pIC50=${n.results?.best_pic50?.toFixed(2) ?? "N/A"}, strategy: ${n.motivation?.slice(0, 120) ?? ""}`;
+              if (verdict === "Supported" || verdict === "Partially Supported") {
+                supportedClaims.push(claim);
+              } else if (verdict === "Contradicted") {
+                contradictedClaims.push(claim);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("[evolveQuery] Failed to read DB context:", (e as Error).message);
+        }
+      }
+
+      const result = await evolveDiscoveryQuery(
+        previousQuery,
+        lessons,
+        supportedClaims,
+        contradictedClaims
+      );
+
+      return result;
+    }),
 });

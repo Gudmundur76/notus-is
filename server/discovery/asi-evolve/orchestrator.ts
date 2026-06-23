@@ -19,6 +19,7 @@
  */
 
 import { seedCognitionStore, refreshCognitionStore, seedFromPythonDiscovery } from "./cognition-seeder";
+import { evolveDiscoveryQuery } from "../query-evolver";
 import { sampleNodes, recordNode, getBestNode, getOrCreateRun, getRunStats } from "./database";
 import { IslandSampler } from "./island-sampler";
 import { generateStrategy } from "./researcher";
@@ -123,6 +124,7 @@ export async function runEvolveStep(): Promise<{
   sampling_algorithm: string;
   used_diff_mode: boolean;
   manager_ran: boolean;
+  evolved_query: string | null;
 }> {
   const startTime = Date.now();
   const runId = await getOrCreateRun(RUN_NAME);
@@ -330,6 +332,73 @@ export async function runEvolveStep(): Promise<{
 
   // ── Phase 5: Manage ───────────────────────────────────────────────────────
   // Manager auto-tunes Researcher/Analyzer prompts every MANAGER_RUN_EVERY steps
+  // ── Query Evolution ──────────────────────────────────────────────────────
+  // After each step, evolve the discovery query using Analyzer lessons and
+  // citation verdicts from the node metadata.  The evolved query is persisted
+  // in the node metadata and will be used by the next Heartbeat cycle's
+  // python-bridge call via seedFromPythonDiscovery().
+  let evolvedQuery: string | null = null;
+  try {
+    // Collect lessons: node analysis + top-3 previous node analyses
+    const lessons: string[] = [];
+    if (savedNode.analysis) lessons.push(savedNode.analysis);
+    const recentForLessons = await sampleNodes(runId, 3, "greedy", 1.0);
+    for (const n of recentForLessons) {
+      if (n.analysis && n.id !== savedNode.id) lessons.push(n.analysis);
+    }
+
+    // Collect citation verdicts from node metadata
+    const supportedClaims: string[] = [];
+    const contradictedClaims: string[] = [];
+    const allNodes = await sampleNodes(runId, 10, "random", 1.0);
+    for (const n of allNodes) {
+      const verdict = (n.metadata as any)?.citationVerdict as string | undefined;
+      const claim = `${n.name}: pIC50=${n.results?.best_pic50?.toFixed(2) ?? "N/A"}, strategy: ${n.motivation?.slice(0, 120) ?? ""}`;
+      if (verdict === "Supported" || verdict === "Partially Supported") {
+        supportedClaims.push(claim);
+      } else if (verdict === "Contradicted") {
+        contradictedClaims.push(claim);
+      }
+    }
+
+    const previousQuery = (savedNode.metadata as any)?.lastDiscoveryQuery as string
+      ?? "HIV-1 protease inhibitor small molecule binding affinity pIC50 scaffold design";
+
+    const evolved = await evolveDiscoveryQuery(
+      previousQuery,
+      lessons,
+      supportedClaims,
+      contradictedClaims
+    );
+    evolvedQuery = evolved.query;
+
+    // Persist the evolved query in node metadata for traceability
+    savedNode.metadata = {
+      ...savedNode.metadata,
+      evolvedQuery: evolved.query,
+      evolvedQueryRationale: evolved.rationale,
+      evolvedQueryLlm: evolved.llmGenerated,
+      evolvedQueryAt: evolved.generatedAt,
+    };
+    try {
+      const mysqlEQ = await import("mysql2/promise");
+      const connEQ = await mysqlEQ.createConnection(process.env.DATABASE_URL!);
+      await connEQ.execute(
+        `UPDATE evolve_nodes SET metadata = JSON_SET(COALESCE(metadata, '{}'),
+          '$.evolvedQuery', ?,
+          '$.evolvedQueryRationale', ?,
+          '$.evolvedQueryLlm', ?,
+          '$.evolvedQueryAt', ?
+        ) WHERE id = ?`,
+        [evolved.query, evolved.rationale, evolved.llmGenerated ? 1 : 0, evolved.generatedAt, savedNode.id ?? 0]
+      );
+      await connEQ.end();
+    } catch { /* non-fatal */ }
+    console.log(`[ASI-Evolve] Query evolved (llm=${evolved.llmGenerated}): "${evolved.query.slice(0, 80)}..."`);
+  } catch (e) {
+    console.warn("[ASI-Evolve] evolveDiscoveryQuery failed:", (e as Error).message);
+  }
+
   let managerRan = false;
   if (stepNum % MANAGER_RUN_EVERY === 0) {
     console.log(`[ASI-Evolve] Running Manager at step ${stepNum}...`);
@@ -409,6 +478,7 @@ export async function runEvolveStep(): Promise<{
     sampling_algorithm: samplingAlgorithmUsed,
     used_diff_mode: typeof useDiffMode === 'boolean' ? useDiffMode : false,
     manager_ran: managerRan,
+    evolved_query: evolvedQuery,
   };
 }
 
