@@ -198,7 +198,7 @@ The quantum scoring module (`server/discovery/predictor.ts`) falls back to class
 
 ---
 
-## Step 6: Build and Start
+## Step 6: Build, Start, and Verify
 
 ### Development
 
@@ -211,13 +211,40 @@ Starts the Express server with `tsx watch` (hot reload). Vite dev server proxies
 ### Production
 
 ```bash
-pnpm build
-node dist/index.js
+pnpm build && pnpm start
 ```
 
 The build compiles:
 - Frontend: Vite → `dist/client/`
 - Backend: esbuild → `dist/index.js`
+
+### Verify the server is running
+
+```bash
+open http://localhost:3000/verification-dashboard
+```
+
+### Run the end-to-end integration diagnostic
+
+```bash
+npx tsx server/discovery/integration-test.ts
+# Output saved to /tmp/integration-report.json
+```
+
+### Quantum activation
+
+```bash
+pip3 install pyqpanda3
+```
+
+Then set in `.env`:
+
+```env
+WUKONG_API_TOKEN=<your Origin Quantum Cloud token>
+WUKONG_BACKEND=WK_C180_2   # real QPU; use full_amplitude for free simulator
+```
+
+Get a free API key at [qcloud.originqc.com.cn/en/programming/pilotos](https://qcloud.originqc.com.cn/en/programming/pilotos). See [QUANTUM.md](./QUANTUM.md) for the full activation guide.
 
 ---
 
