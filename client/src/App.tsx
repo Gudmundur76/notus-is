@@ -11,6 +11,7 @@ import Findings from "./pages/Findings";
 import Methodology from "./pages/Methodology";
 import Contact from "./pages/Contact";
 import Dashboard from "./pages/Dashboard";
+import VerificationDashboard from "./pages/VerificationDashboard";
 
 function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -32,6 +33,7 @@ function Router() {
       <Route path="/dashboard" component={() => <Layout><Dashboard /></Layout>} />
       <Route path="/methodology" component={() => <Layout><Methodology /></Layout>} />
       <Route path="/contact" component={() => <Layout><Contact /></Layout>} />
+      <Route path="/verification-dashboard" component={() => <Layout><VerificationDashboard /></Layout>} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

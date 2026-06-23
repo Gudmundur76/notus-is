@@ -162,3 +162,16 @@ The verified claims corpus also feeds back into the cognition store as ground tr
 - [ ] discovery.verificationCycles tRPC procedure — paginated cycle history
 - [ ] discovery.latestCycle tRPC procedure — most recent cycle with full phase breakdown
 - [ ] verification-cycle.test.ts — 6 unit tests (one per phase + full cycle integration)
+
+## Phase D — Real-Time Monitoring Dashboard
+
+- [ ] Create client/src/components/verification/CycleStatusCard.tsx
+- [ ] Create client/src/components/verification/PhaseProgressBar.tsx
+- [ ] Create client/src/components/verification/StatsCards.tsx
+- [ ] Create client/src/components/verification/TrendChart.tsx
+- [ ] Create client/src/components/verification/CycleHistoryTable.tsx
+- [ ] Create client/src/components/verification/VerdictBreakdown.tsx
+- [ ] Create client/src/components/verification/index.ts (barrel export)
+- [ ] Create client/src/pages/VerificationDashboard.tsx
+- [ ] Add /verification-dashboard route to App.tsx
+- [ ] Add "Verification" nav link to Navbar (logged-in only)
