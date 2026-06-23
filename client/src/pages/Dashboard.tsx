@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { motion, useInView } from "framer-motion";
-import { Activity, Zap, FlaskConical, GitBranch, CheckCircle, Clock, AlertCircle, RefreshCw } from "lucide-react";
+import { Activity, Zap, FlaskConical, GitBranch, CheckCircle, Clock, AlertCircle, RefreshCw, Brain, TrendingUp, Database } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 const easeOutExpo = [0.16, 1, 0.3, 1] as [number, number, number, number];
@@ -99,6 +99,18 @@ export default function Dashboard() {
   );
   const { data: bestCandidates } = trpc.discovery.bestCandidates.useQuery(
     { limit: 5 },
+    { refetchInterval: 60000 }
+  );
+  const { data: evolveStatus } = trpc.discovery.evolveStatus.useQuery(
+    undefined,
+    { refetchInterval: 30000 }
+  );
+  const { data: evolveNodes } = trpc.discovery.evolveNodes.useQuery(
+    { limit: 8 },
+    { refetchInterval: 60000 }
+  );
+  const { data: evolveBest } = trpc.discovery.evolveBest.useQuery(
+    undefined,
     { refetchInterval: 60000 }
   );
 
@@ -317,6 +329,102 @@ export default function Dashboard() {
             </div>
           </motion.div>
         )}
+
+        {/* ASI-Evolve Section */}
+        <motion.div
+          initial={{ y: 30, opacity: 0 }}
+          animate={isInView ? { y: 0, opacity: 1 } : {}}
+          transition={{ duration: 0.5, delay: 0.5, ease: easeOutExpo }}
+          className="mt-8 rounded-2xl p-6"
+          style={{ backgroundColor: "#0D1425", border: "1px solid rgba(139,92,246,0.3)" }}
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Brain size={16} style={{ color: "#8B5CF6" }} />
+              <h2 className="font-mono text-sm" style={{ color: "#8B5CF6" }}>// ASI-EVOLVE ENGINE</h2>
+            </div>
+            <div className="flex items-center gap-4">
+              {evolveStatus && (
+                <>
+                  <span className="text-xs font-mono" style={{ color: "#64748B" }}>Steps: <span style={{ color: "#F0F4F8" }}>{evolveStatus.step_count}</span></span>
+                  <span className="text-xs font-mono" style={{ color: "#64748B" }}>Best Score: <span style={{ color: "#8B5CF6" }}>{evolveStatus.best_score.toFixed(3)}</span></span>
+                  <span className="text-xs font-mono" style={{ color: "#64748B" }}>Cognition: <span style={{ color: "#06B6D4" }}>{evolveStatus.cognition_count}</span></span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ASI-Evolve stats row */}
+          {evolveStatus && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              {[
+                { label: "Steps Complete", value: evolveStatus.step_count.toString(), color: "#8B5CF6", icon: TrendingUp },
+                { label: "Best pIC50 (Evolve)", value: evolveStatus.best_pic50 > 0 ? evolveStatus.best_pic50.toFixed(2) : "—", color: "#10B981", icon: Zap },
+                { label: "Success Rate", value: `${(evolveStatus.success_rate * 100).toFixed(0)}%`, color: "#06B6D4", icon: CheckCircle },
+                { label: "Cognition Items", value: evolveStatus.cognition_count.toString(), color: "#F59E0B", icon: Database },
+              ].map(stat => {
+                const Icon = stat.icon;
+                return (
+                  <div key={stat.label} className="rounded-xl p-4" style={{ backgroundColor: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Icon size={12} style={{ color: stat.color }} />
+                    </div>
+                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 700, color: stat.color }}>{stat.value}</div>
+                    <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "#64748B", marginTop: 4 }}>{stat.label}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Recent steps */}
+          {evolveNodes && evolveNodes.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-5 gap-3 py-2 px-3 mb-1">
+                {["Step", "Strategy", "Score", "Best pIC50", "Verified"].map(h => (
+                  <div key={h} className="text-xs font-mono" style={{ color: "#475569" }}>{h}</div>
+                ))}
+              </div>
+              {evolveNodes.map((node, i) => (
+                <div
+                  key={node.id ?? i}
+                  className="grid grid-cols-5 gap-3 py-2 px-3 rounded-lg"
+                  style={{ backgroundColor: node.is_best ? "rgba(139,92,246,0.08)" : (i % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent"), border: node.is_best ? "1px solid rgba(139,92,246,0.2)" : "1px solid transparent" }}
+                >
+                  <div className="font-mono text-xs" style={{ color: "#94A3B8" }}>{node.step_name}</div>
+                  <div className="font-mono text-xs truncate" style={{ color: "#F0F4F8" }}>{node.name}</div>
+                  <div className="font-mono text-xs font-bold" style={{ color: node.score >= 8 ? "#10B981" : node.score >= 6 ? "#F59E0B" : "#64748B" }}>{node.score.toFixed(3)}</div>
+                  <div className="font-mono text-xs" style={{ color: "#06B6D4" }}>{node.results?.best_pic50?.toFixed(2) ?? "—"}</div>
+                  <div className="font-mono text-xs" style={{ color: "#10B981" }}>{node.results?.top10_verified_count ?? 0}/10</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 gap-3">
+              <Brain size={28} style={{ color: "#1E2D47" }} />
+              <div className="text-center">
+                <div className="font-mono text-sm mb-1" style={{ color: "#64748B" }}>No evolve steps yet</div>
+                <div className="font-mono text-xs" style={{ color: "#475569" }}>The first ASI-Evolve step will run on the next scheduled cycle.</div>
+              </div>
+            </div>
+          )}
+
+          {/* Best evolve candidate */}
+          {evolveBest?.results?.best_smiles && (
+            <div className="mt-4 p-4 rounded-xl" style={{ backgroundColor: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)" }}>
+              <div className="flex items-center gap-2 mb-2">
+                <Zap size={12} style={{ color: "#8B5CF6" }} />
+                <span className="text-xs font-mono" style={{ color: "#8B5CF6" }}>BEST EVOLVE CANDIDATE — pIC50 {evolveBest.results.best_pic50?.toFixed(2)} — {evolveBest.name}</span>
+              </div>
+              <div className="font-mono text-xs p-2 rounded-lg break-all" style={{ backgroundColor: "rgba(0,0,0,0.3)", color: "#94A3B8" }}>
+                {evolveBest.results.best_smiles}
+              </div>
+              {evolveBest.analysis && (
+                <div className="mt-2 text-xs" style={{ color: "#64748B", lineHeight: 1.6 }}>{evolveBest.analysis}</div>
+              )}
+            </div>
+          )}
+        </motion.div>
 
         {/* Best SMILES display */}
         {stats?.bestSmiles && (

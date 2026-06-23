@@ -25,6 +25,8 @@ import {
 } from "../../drizzle/schema";
 import { eq, desc, asc, and, gte, lte, count, like, or } from "drizzle-orm";
 import { getLoopStats, getLoopStatus, runSingleCycle } from "../discovery/loop";
+import { getEvolveStatus, runEvolveStep } from "../discovery/asi-evolve/orchestrator";
+import { getAllNodes, getBestNode, getOrCreateRun } from "../discovery/asi-evolve/database";
 import { TRPCError } from "@trpc/server";
 
 export const discoveryRouter = router({
@@ -256,6 +258,49 @@ export const discoveryRouter = router({
     });
 
     return { triggered: true, message: "Discovery cycle started" };
+  }),
+
+  // ── ASI-Evolve status ────────────────────────────────────────────────────────
+  evolveStatus: publicProcedure.query(async () => {
+    return getEvolveStatus();
+  }),
+
+  // ── ASI-Evolve recent steps ──────────────────────────────────────────────────
+  evolveNodes: publicProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(10) }))
+    .query(async ({ input }) => {
+      try {
+        const runId = await getOrCreateRun();
+        const all = await getAllNodes(runId);
+        return all.slice(-input.limit).reverse();
+      } catch {
+        return [];
+      }
+    }),
+
+  // ── ASI-Evolve best node ─────────────────────────────────────────────────────
+  evolveBest: publicProcedure.query(async () => {
+    try {
+      const runId = await getOrCreateRun();
+      return getBestNode(runId);
+    } catch {
+      return null;
+    }
+  }),
+
+  // ── Trigger ASI-Evolve step (owner only) ─────────────────────────────────────
+  triggerEvolveStep: protectedProcedure.mutation(async ({ ctx }) => {
+    const ownerOpenId = process.env.OWNER_OPEN_ID;
+    if (ownerOpenId && ctx.user.openId !== ownerOpenId) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Only the project owner can trigger evolve steps",
+      });
+    }
+    runEvolveStep().catch(err => {
+      console.error("[ASI-Evolve] Manual step trigger failed:", err);
+    });
+    return { triggered: true, message: "ASI-Evolve step started" };
   }),
 
   // ── Track distribution ───────────────────────────────────────────────────────

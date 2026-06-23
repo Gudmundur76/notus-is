@@ -19,6 +19,7 @@ import {
   listHeartbeatJobs,
 } from "../_core/heartbeat";
 import { runSingleCycle } from "../discovery/loop";
+import { runEvolveStep } from "../discovery/asi-evolve/orchestrator";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -109,16 +110,23 @@ export async function discoveryLoopHandler(req: Request, res: Response): Promise
     timestamp: new Date().toISOString(),
   });
 
-  // Run the cycle in the background
-  runSingleCycle()
-    .then(result => {
+  // Run both engines in parallel (non-blocking)
+  Promise.allSettled([
+    runSingleCycle().then(result => {
       console.log(
-        `[Scheduled] Discovery cycle ${result.cycleNumber} complete: ` +
+        `[Scheduled] Legacy cycle ${result.cycleNumber} complete: ` +
         `${result.candidatesGenerated} generated, ${result.candidatesVerified} verified, ` +
         `best pIC50=${result.bestPic50.toFixed(2)}, duration=${result.durationMs}ms`
       );
-    })
-    .catch(err => {
-      console.error("[Scheduled] Discovery cycle failed:", err);
-    });
+    }),
+    runEvolveStep().then(result => {
+      console.log(
+        `[Scheduled] ASI-Evolve ${result.step_name} complete: ` +
+        `score=${result.score.toFixed(3)}, best_pic50=${result.best_pic50.toFixed(2)}, ` +
+        `new_best=${result.is_new_best}, elapsed=${result.elapsed_ms}ms`
+      );
+    }),
+  ]).catch(err => {
+    console.error("[Scheduled] Engine run failed:", err);
+  });
 }
