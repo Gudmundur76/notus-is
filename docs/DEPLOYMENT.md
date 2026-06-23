@@ -336,9 +336,13 @@ notus.is is hosted on the Manus platform with **Autoscale** (serverless) mode.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
+| Python bridge returns empty results | `PYTHON_ENGINE_PATH` not set | Set `PYTHON_ENGINE_PATH=/absolute/path/to/asi-evolve-discovery-engine` in `.env` |
+| Quantum scores missing from results | `pyqpanda3` not installed or `WUKONG_API_TOKEN` not set | `pip3 install pyqpanda3` and set `WUKONG_API_TOKEN` in `.env` |
+| citation.manus.space returns 403 | `CITATION_API_KEY` missing | Set `CITATION_API_KEY` in `.env` |
+| Dashboard shows no data | No cycles have run yet | Wait up to 4 h for the first Heartbeat fire, or trigger manually via `trpc.discovery.triggerVerificationCycle` |
 | `python3: command not found` | Python not installed | `sudo apt install python3 python3-pip` |
 | `ModuleNotFoundError: rdkit` | RDKit not installed | `pip3 install rdkit-pypi` |
-| `[Quantum] wukong_vqe parse error` | pyqpanda3 not installed | `pip3 install pyqpanda3` |
+| `[Quantum] wukong_vqe parse error` | `pyqpanda3` not installed | `pip3 install pyqpanda3` |
 | `[Heartbeat] Registration failed` | Server not yet started | Wait for server to be ready, then restart |
 | `DATABASE_URL not set` | Missing env var | Add to `.env` and restart |
-| Cycles stuck at `running` | Server crash during cycle | Run `UPDATE verification_cycles SET status='failed' WHERE status='running'` |
+| Cycles stuck at `running` | Server crash mid-cycle | `UPDATE verification_cycles SET status='failed' WHERE status='running'` |
