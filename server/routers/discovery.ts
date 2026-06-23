@@ -29,6 +29,11 @@ import {
   runVerificationCycle,
   getVerificationCycles,
   getLatestVerificationCycle,
+  getVerificationCycleStatus,
+  getVerificationCycleHistory,
+  getVerificationStats,
+  type VerificationCycleStatus,
+  type VerificationStats,
 } from "../discovery/verification-cycle";
 import { pythonBridge } from "../discovery/python-bridge";
 import { getEvolveStatus, runEvolveStep } from "../discovery/asi-evolve/orchestrator";
@@ -488,6 +493,39 @@ export const discoveryRouter = router({
    */
   latestVerificationCycle: publicProcedure.query(async () => {
     return await getLatestVerificationCycle();
+  }),
+
+  /**
+   * Status of the current (or most recent) verification cycle.
+   * Returns status="idle" when no cycles have ever run.
+   */
+  verificationCycleStatus: publicProcedure.query(async (): Promise<VerificationCycleStatus> => {
+    return await getVerificationCycleStatus();
+  }),
+
+  /**
+   * Paginated history of all verification cycles, newest first.
+   * Supports up to 100 items per page.
+   */
+  verificationCycleHistory: publicProcedure
+    .input(
+      z.object({
+        page:     z.number().int().min(1).default(1),
+        pageSize: z.number().int().min(1).max(100).default(20),
+      })
+    )
+    .query(async ({ input }) => {
+      return await getVerificationCycleHistory(input.page, input.pageSize);
+    }),
+
+  /**
+   * Aggregate statistics across all verification cycles:
+   *   - total / completed / failed / running counts
+   *   - total claims verified, support rate, best pIC50, avg duration
+   *   - convergence flag, last cycle timestamp
+   */
+  verificationStats: publicProcedure.query(async (): Promise<VerificationStats> => {
+    return await getVerificationStats();
   }),
 
   /**

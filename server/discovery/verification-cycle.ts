@@ -740,3 +740,192 @@ export async function getLatestVerificationCycle(): Promise<VerificationCycle | 
   if (rows.length === 0) return null;
   return rowToVerificationCycle(rows[0]);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase-H DB helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Status of the current (or most recent) verification cycle.
+ *
+ * Returns:
+ *   - `running`   — a cycle is in progress right now
+ *   - `completed` — last cycle finished successfully
+ *   - `failed`    — last cycle failed
+ *   - `idle`      — no cycles have ever run
+ */
+export interface VerificationCycleStatus {
+  status: "running" | "completed" | "failed" | "idle";
+  cycleId: string | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  durationMs: number | null;
+  candidatesDiscovered: number | null;
+  candidatesScored: number | null;
+  claimsVerified: number | null;
+  cognitionItemsAdded: number | null;
+  convergenceReached: boolean | null;
+  bestPic50: number | null;
+  errorMessage: string | null;
+}
+
+export async function getVerificationCycleStatus(): Promise<VerificationCycleStatus> {
+  const db = await getDb();
+  const empty: VerificationCycleStatus = {
+    status: "idle",
+    cycleId: null,
+    startedAt: null,
+    completedAt: null,
+    durationMs: null,
+    candidatesDiscovered: null,
+    candidatesScored: null,
+    claimsVerified: null,
+    cognitionItemsAdded: null,
+    convergenceReached: null,
+    bestPic50: null,
+    errorMessage: null,
+  };
+  if (!db) return empty;
+
+  // Prefer a running cycle; fall back to the most recent completed/failed one
+  const runningRows = await db
+    .select()
+    .from(verificationCyclesTable)
+    .where(eq(verificationCyclesTable.status, "running"))
+    .orderBy(desc(verificationCyclesTable.startedAt))
+    .limit(1);
+
+  const row =
+    runningRows[0] ??
+    (
+      await db
+        .select()
+        .from(verificationCyclesTable)
+        .orderBy(desc(verificationCyclesTable.startedAt))
+        .limit(1)
+    )[0];
+
+  if (!row) return empty;
+
+  return {
+    status: row.status as "running" | "completed" | "failed",
+    cycleId: row.cycleId,
+    startedAt: row.startedAt ? new Date(row.startedAt) : null,
+    completedAt: row.completedAt ? new Date(row.completedAt) : null,
+    durationMs: row.durationMs ?? null,
+    candidatesDiscovered: row.candidatesDiscovered ?? null,
+    candidatesScored: row.candidatesScored ?? null,
+    claimsVerified: row.claimsVerified ?? null,
+    cognitionItemsAdded: row.cognitionItemsAdded ?? null,
+    convergenceReached: row.convergenceReached ?? null,
+    bestPic50: row.bestPic50 ? Number(row.bestPic50) : null,
+    errorMessage: row.errorMessage ?? null,
+  };
+}
+
+/**
+ * Paginated history of verification cycles, newest first.
+ * Thin alias for getVerificationCycles() with a more descriptive name.
+ */
+export async function getVerificationCycleHistory(
+  page = 1,
+  pageSize = 20
+): Promise<{ items: VerificationCycle[]; total: number; page: number; pageSize: number }> {
+  return getVerificationCycles(page, pageSize);
+}
+
+/**
+ * Aggregate statistics across all verification cycles.
+ */
+export interface VerificationStats {
+  totalCycles: number;
+  completedCycles: number;
+  failedCycles: number;
+  runningCycles: number;
+  totalClaimsVerified: number;
+  totalCognitionItemsAdded: number;
+  totalCandidatesDiscovered: number;
+  totalCandidatesScored: number;
+  /** Fraction of verified claims that produced a cognition item (proxy for support rate). */
+  supportRate: number | null;
+  bestPic50Overall: number | null;
+  avgDurationMs: number | null;
+  convergenceReached: boolean;
+  lastCycleAt: Date | null;
+}
+
+export async function getVerificationStats(): Promise<VerificationStats> {
+  const db = await getDb();
+  const empty: VerificationStats = {
+    totalCycles: 0,
+    completedCycles: 0,
+    failedCycles: 0,
+    runningCycles: 0,
+    totalClaimsVerified: 0,
+    totalCognitionItemsAdded: 0,
+    totalCandidatesDiscovered: 0,
+    totalCandidatesScored: 0,
+    supportRate: null,
+    bestPic50Overall: null,
+    avgDurationMs: null,
+    convergenceReached: false,
+    lastCycleAt: null,
+  };
+  if (!db) return empty;
+
+  const { count, sum, max, avg } = await import("drizzle-orm");
+
+  const [totalsRows, lastRows, statusRows, convergenceRows] = await Promise.all([
+    db
+      .select({
+        total:           count(),
+        totalClaims:     sum(verificationCyclesTable.claimsVerified),
+        totalCognition:  sum(verificationCyclesTable.cognitionItemsAdded),
+        totalDiscovered: sum(verificationCyclesTable.candidatesDiscovered),
+        totalScored:     sum(verificationCyclesTable.candidatesScored),
+        bestPic50:       max(verificationCyclesTable.bestPic50),
+        avgDuration:     avg(verificationCyclesTable.durationMs),
+      })
+      .from(verificationCyclesTable),
+    db
+      .select({ startedAt: verificationCyclesTable.startedAt })
+      .from(verificationCyclesTable)
+      .orderBy(desc(verificationCyclesTable.startedAt))
+      .limit(1),
+    db
+      .select({ status: verificationCyclesTable.status, n: count() })
+      .from(verificationCyclesTable)
+      .groupBy(verificationCyclesTable.status),
+    db
+      .select({ convergenceReached: verificationCyclesTable.convergenceReached })
+      .from(verificationCyclesTable)
+      .where(eq(verificationCyclesTable.convergenceReached, true))
+      .limit(1),
+  ]);
+
+  const totals = totalsRows[0];
+  const byStatus: Record<string, number> = {};
+  for (const r of statusRows) byStatus[r.status] = r.n;
+
+  const totalClaims = Number(totals?.totalClaims ?? 0);
+  const totalCognition = Number(totals?.totalCognition ?? 0);
+  const supportRate = totalClaims > 0
+    ? Math.min(1, totalCognition / totalClaims)
+    : null;
+
+  return {
+    totalCycles:               totals?.total ?? 0,
+    completedCycles:           byStatus["completed"] ?? 0,
+    failedCycles:              byStatus["failed"] ?? 0,
+    runningCycles:             byStatus["running"] ?? 0,
+    totalClaimsVerified:       totalClaims,
+    totalCognitionItemsAdded:  totalCognition,
+    totalCandidatesDiscovered: Number(totals?.totalDiscovered ?? 0),
+    totalCandidatesScored:     Number(totals?.totalScored ?? 0),
+    supportRate,
+    bestPic50Overall:          totals?.bestPic50 ? Number(totals.bestPic50) : null,
+    avgDurationMs:             totals?.avgDuration ? Number(totals.avgDuration) : null,
+    convergenceReached:        convergenceRows.length > 0,
+    lastCycleAt:               lastRows[0]?.startedAt ? new Date(lastRows[0].startedAt) : null,
+  };
+}
