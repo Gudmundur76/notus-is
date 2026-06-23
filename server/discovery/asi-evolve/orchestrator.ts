@@ -11,6 +11,10 @@
  *   - Cognition Store: semantic memory with embedding-based retrieval
  *   - Experiment Database: UCB1/Island/Greedy/Random sampling
  *
+ * Run State Persistence (run_state.py equivalent):
+ *   - managedPrompts, islandSamplerState, bestScore are loaded from DB on first call
+ *   - Saved back to DB after each step so restarts resume from the correct state
+ *
  * Source of truth: https://github.com/GAIR-NLP/ASI-Evolve
  */
 
@@ -22,6 +26,12 @@ import { executeStrategy } from "./engineer";
 import { analyzeNode, extractAndStoreCognition } from "./analyzer";
 import { runManager, initManagedPrompts, type ManagedPrompts } from "./manager";
 import { BestSnapshotManager } from "./best-snapshot";
+import {
+  saveRunState,
+  loadRunState,
+  defaultRunState,
+  type IslandSamplerState,
+} from "./run-state";
 import { notifyOwner } from "../_core_shim";
 import type { EvolveNode, SampledContext } from "./types";
 
@@ -34,10 +44,68 @@ const USE_DIFF_MODE_AFTER = 3;       // Use researcher_diff after N steps (once 
 const SAMPLING_ALGORITHM: "ucb1" | "island" | "greedy" | "random" = "ucb1";
 
 // ─── Module-level state (persists across Heartbeat calls in the same process) ─
+// These are initialized from DB on the first runEvolveStep() call.
 
 let managedPrompts: ManagedPrompts = initManagedPrompts();
 let islandSampler: IslandSampler | null = null;
 let bestSnapshotManager: BestSnapshotManager | null = null;
+let stateLoaded = false;  // tracks whether we've loaded persisted state from DB
+
+// ─── State Initialization ─────────────────────────────────────────────────────
+
+/**
+ * Load persisted run state from the database.
+ * Called once on the first runEvolveStep() invocation.
+ * Mirrors run_state.py load() from the Python source.
+ */
+async function ensureStateLoaded(runId: number): Promise<void> {
+  if (stateLoaded) return;
+
+  const state = await loadRunState(runId);
+  if (state) {
+    // Restore Manager-tuned prompts
+    managedPrompts = state.managedPrompts;
+
+    // Restore IslandSampler rotation state
+    if (SAMPLING_ALGORITHM === "island" && state.islandSamplerState) {
+      islandSampler = new IslandSampler();
+      restoreIslandSamplerState(islandSampler, state.islandSamplerState);
+    }
+
+    // Restore BestSnapshotManager with persisted best score
+    bestSnapshotManager = new BestSnapshotManager(runId);
+    await bestSnapshotManager.initFromBestScore(state.bestScore);
+
+    console.log(
+      `[ASI-Evolve] Resumed from persisted state: ` +
+      `promptVersion=${managedPrompts.stepCount}, ` +
+      `bestScore=${state.bestScore.toFixed(3)}`
+    );
+  } else {
+    // First run — use defaults
+    bestSnapshotManager = new BestSnapshotManager(runId);
+    console.log(`[ASI-Evolve] No persisted state found — starting fresh`);
+  }
+
+  stateLoaded = true;
+}
+
+/**
+ * Extract serializable state from an IslandSampler instance.
+ */
+function extractIslandSamplerState(sampler: IslandSampler): IslandSamplerState {
+  return sampler.getSerializableState();
+}
+
+/**
+ * Restore IslandSampler rotation state from a serialized snapshot.
+ */
+function restoreIslandSamplerState(
+  sampler: IslandSampler,
+  state: IslandSamplerState
+): void {
+  sampler.restoreState(state);
+}
 
 // ─── Main Loop Step ───────────────────────────────────────────────────────────
 
@@ -62,10 +130,8 @@ export async function runEvolveStep(): Promise<{
   const stepNum = stats.step_count + 1;
   const stepName = `step_${String(stepNum).padStart(4, "0")}`;
 
-  // Initialize BestSnapshotManager for this run
-  if (!bestSnapshotManager) {
-    bestSnapshotManager = new BestSnapshotManager(runId);
-  }
+  // Load persisted state on first call (run_state.py equivalent)
+  await ensureStateLoaded(runId);
 
   console.log(`[ASI-Evolve] Starting ${stepName} (run_id=${runId}, algorithm=${SAMPLING_ALGORITHM})`);
 
@@ -156,7 +222,7 @@ export async function runEvolveStep(): Promise<{
   const savedNode = await recordNode(nodeData);
 
   // Generate analysis using LLM with Manager-tuned prompt
-  const analysis = await analyzeNode(savedNode, bestNode);
+  const analysis = await analyzeNode(savedNode, bestNode, managedPrompts.analyzerSystemPrompt);
   savedNode.analysis = analysis;
 
   // Update analysis in DB
@@ -175,8 +241,6 @@ export async function runEvolveStep(): Promise<{
   // Extract and store new cognition items from this step
   const newCognitionItems = await extractAndStoreCognition(runId, savedNode);
   cognitionAdded += newCognitionItems;
-
-  // Island sampler maintains its own internal state via sample() calls
 
   // Check if this is a new global best
   const isNewBest = score > (bestNode?.score || 0);
@@ -211,6 +275,17 @@ export async function runEvolveStep(): Promise<{
     } catch (e) {
       console.warn("[ASI-Evolve] Manager failed:", e);
     }
+  }
+
+  // ── Persist Run State ─────────────────────────────────────────────────────
+  // Save managedPrompts, islandSampler state, and bestScore after every step.
+  // This is the run_state.py equivalent — ensures resumability after restarts.
+  try {
+    const islandState = islandSampler ? extractIslandSamplerState(islandSampler) : null;
+    const currentBestScore = bestSnapshotManager?.getBestScore() ?? score;
+    await saveRunState(runId, managedPrompts, islandState, currentBestScore);
+  } catch (e) {
+    console.warn("[ASI-Evolve] Failed to persist run state:", e);
   }
 
   const elapsed = Date.now() - startTime;

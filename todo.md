@@ -75,13 +75,13 @@
 - [ ] SwissADME integration — requires registered API key
 - [ ] Quantum hardware upgrade — real IBM/Quafu backend when credentials available
 
-## Missing ASI-Evolve Components (Phase 4 — Exact Source Fidelity)
+## ASI-Evolve Phase 4 (Exact Source Fidelity)
 
-- [ ] Embedding service — LLM-based text embeddings replacing TF-IDF
-- [ ] Vector similarity index — dense cosine similarity replacing in-memory TF-IDF map
-- [ ] Island sampling algorithm — MAP-Elites with feature dimensions, migration, archive
-- [ ] Manager agent — LLM generates optimized prompts for Researcher and Analyzer
-- [ ] SEARCH/REPLACE diff engine — parse and apply <<<<<<< SEARCH / >>>>>>> REPLACE blocks
-- [ ] researcher_diff prompt — Researcher generates diffs against base code (incremental evolution)
-- [ ] BestSnapshotManager — persist best-scoring step outputs to DB
-- [ ] Run state persistence — serialize full run state for resumability
+- [x] Embedding service — LLM-based text embeddings replacing TF-IDF (embedding.ts)
+- [x] Vector similarity index — dense cosine similarity replacing in-memory TF-IDF map (vector-index.ts)
+- [x] Island sampling algorithm — MAP-Elites with feature dimensions, migration, archive (island-sampler.ts)
+- [x] Manager agent — LLM generates optimized prompts for Researcher and Analyzer (manager.ts)
+- [x] SEARCH/REPLACE diff engine — parse and apply <<<<<<< SEARCH / >>>>>>> REPLACE blocks (diff.ts)
+- [x] researcher_diff prompt — Researcher generates diffs against base code (incremental evolution) (researcher.ts)
+- [x] BestSnapshotManager — persist best-scoring step outputs to DB (best-snapshot.ts)
+- [x] Run state persistence — serialize full run state (managedPrompts, islandSampler, stepCount, bestScore) for resumability across server restarts (run-state.ts)

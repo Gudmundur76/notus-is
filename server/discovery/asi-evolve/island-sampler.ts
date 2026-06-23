@@ -178,6 +178,30 @@ export class IslandSampler {
   }
 
   /**
+   * Get serializable state for persistence (run_state.py equivalent).
+   * Captures currentIsland, lastMigrationGeneration, and per-island generation counts.
+   */
+  getSerializableState(): { currentIsland: number; lastMigrationGeneration: number; islandGenerations: number[] } {
+    return {
+      currentIsland: this.currentIsland,
+      lastMigrationGeneration: this.lastMigrationGeneration,
+      islandGenerations: this.islands.map((i) => i.generation),
+    };
+  }
+
+  /**
+   * Restore rotation state from a persisted snapshot.
+   * Island membership is rebuilt from DB nodes on the next sample() call.
+   */
+  restoreState(state: { currentIsland: number; lastMigrationGeneration: number; islandGenerations: number[] }): void {
+    this.currentIsland = state.currentIsland % this.config.numIslands;
+    this.lastMigrationGeneration = state.lastMigrationGeneration;
+    for (let i = 0; i < this.islands.length && i < state.islandGenerations.length; i++) {
+      this.islands[i].generation = state.islandGenerations[i];
+    }
+  }
+
+  /**
    * Reset transient state while keeping configuration.
    * Mirrors IslandSampler.reset() from the Python source.
    */

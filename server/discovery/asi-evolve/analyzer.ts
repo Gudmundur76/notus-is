@@ -15,7 +15,8 @@ import type { EvolveNode } from "./types";
  */
 export async function analyzeNode(
   node: EvolveNode,
-  bestNode: EvolveNode | null
+  bestNode: EvolveNode | null,
+  systemPrompt?: string
 ): Promise<string> {
   const improvement = bestNode
     ? node.score - bestNode.score
@@ -47,12 +48,17 @@ Provide a concise analysis (3-5 sentences) covering:
 
 Be specific about chemistry — name scaffolds, substituents, and binding interactions.`;
 
+  // Use Manager-tuned prompt if provided, otherwise use default
+  const effectiveSystemPrompt = systemPrompt && systemPrompt.trim().length > 0
+    ? systemPrompt
+    : "You are an expert computational chemist. Provide concise, specific chemical analysis.";
+
   try {
     const response = await invokeLLM({
       messages: [
         {
           role: "system",
-          content: "You are an expert computational chemist. Provide concise, specific chemical analysis.",
+          content: effectiveSystemPrompt,
         },
         { role: "user", content: prompt },
       ],

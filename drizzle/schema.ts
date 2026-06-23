@@ -157,3 +157,79 @@ export const dailyLogs = mysqlTable("dailyLogs", {
 
 export type DailyLog = typeof dailyLogs.$inferSelect;
 export type InsertDailyLog = typeof dailyLogs.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ASI-EVOLVE TABLES
+// Ported from GAIR-NLP/ASI-Evolve: database/database.py, evolve_core/run_state.py
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { bigint, double } from "drizzle-orm/mysql-core";
+
+/**
+ * ASI-Evolve runs — one row per named experiment run.
+ * Includes run_state.py fields: managed_prompts, island_state.
+ */
+export const evolveRuns = mysqlTable("evolve_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull().unique(),
+  objective: text("objective").notNull(),
+  samplingAlgorithm: varchar("sampling_algorithm", { length: 50 }).notNull().default("ucb1"),
+  ucb1C: double("ucb1_c").notNull().default(1.414),
+  evalScoreTarget: double("eval_score_target").notNull().default(9.5),
+  maxSteps: int("max_steps").notNull().default(100),
+  stepCount: int("step_count").notNull().default(0),
+  bestScore: double("best_score").notNull().default(0),
+  bestNodeId: int("best_node_id"),
+  status: mysqlEnum("status", ["running", "paused", "completed", "failed"]).notNull().default("running"),
+  startedAt: bigint("started_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  metadata: json("metadata").notNull(),
+  // Run state persistence (run_state.py equivalent)
+  managedPrompts: json("managed_prompts").$type<Record<string, unknown>>(),
+  islandState: json("island_state").$type<Record<string, unknown>>(),
+});
+
+export type EvolveRun = typeof evolveRuns.$inferSelect;
+export type InsertEvolveRun = typeof evolveRuns.$inferInsert;
+
+/**
+ * ASI-Evolve nodes — one row per step execution.
+ */
+export const evolveNodes = mysqlTable("evolve_nodes", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: int("run_id").notNull(),
+  stepName: varchar("step_name", { length: 64 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  motivation: text("motivation"),
+  code: text("code"),
+  results: json("results"),
+  analysis: text("analysis"),
+  score: double("score").notNull().default(0),
+  evalScore: double("eval_score").notNull().default(0),
+  success: boolean("success").notNull().default(false),
+  parentIds: json("parent_ids"),
+  visitCount: int("visit_count").notNull().default(0),
+  isBest: boolean("is_best").notNull().default(false),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  metadata: json("metadata"),
+});
+
+export type EvolveNode = typeof evolveNodes.$inferSelect;
+export type InsertEvolveNode = typeof evolveNodes.$inferInsert;
+
+/**
+ * ASI-Evolve cognition — semantic memory items with embeddings.
+ */
+export const evolveCognition = mysqlTable("evolve_cognition", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: int("run_id").notNull(),
+  content: text("content").notNull(),
+  source: varchar("source", { length: 128 }),
+  embedding: json("embedding"),
+  score: double("score").notNull().default(0),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  metadata: json("metadata"),
+});
+
+export type EvolveCognitionItem = typeof evolveCognition.$inferSelect;
+export type InsertEvolveCognitionItem = typeof evolveCognition.$inferInsert;

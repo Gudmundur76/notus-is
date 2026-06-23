@@ -40,6 +40,14 @@ export class BestSnapshotManager {
   }
 
   /**
+   * Initialize the best-score tracker from a persisted score value.
+   * Used by run-state.ts to restore state after a server restart.
+   */
+  async initFromBestScore(score: number): Promise<void> {
+    this.bestScore = score > 0 ? score : -Infinity;
+  }
+
+  /**
    * Write a new snapshot if the provided node improves on the best score.
    * Mirrors BestSnapshotManager.update_if_better() from the Python source.
    *
