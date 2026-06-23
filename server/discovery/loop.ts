@@ -186,22 +186,35 @@ async function updateCognitionStore(
     lessons.push(lesson);
     const trimmedLessons = lessons.slice(-100);
 
+    const isNewBest = bestPic50 > (current.bestPic50Ever ?? 0);
+
     await db
       .update(cognitionStore)
       .set({
         cycleCount: cycleNumber,
         dayNumber,
-        bestPic50Ever:
-          bestPic50 > (current.bestPic50Ever ?? 0) ? bestPic50 : current.bestPic50Ever,
-        bestSmilsEver:
-          bestPic50 > (current.bestPic50Ever ?? 0) ? bestSmiles : current.bestSmilsEver,
-        bestAffinityEver:
-          bestPic50 > (current.bestPic50Ever ?? 0)
-            ? Math.pow(10, 9 - bestPic50)
-            : current.bestAffinityEver,
+        bestPic50Ever: isNewBest ? bestPic50 : current.bestPic50Ever,
+        bestSmilsEver: isNewBest ? bestSmiles : current.bestSmilsEver,
+        bestAffinityEver: isNewBest
+          ? Math.pow(10, 9 - bestPic50)
+          : current.bestAffinityEver,
         accumulatedLessons: trimmedLessons,
       })
       .where(eq(cognitionStore.targetChemblId, "CHEMBL247"));
+
+    // Notify owner when a new global best pIC50 is achieved
+    if (isNewBest && bestPic50 > 0) {
+      const prevBest = current.bestPic50Ever ?? 0;
+      const improvement = bestPic50 - prevBest;
+      notifyOwner({
+        title: `notus.is — New Best pIC50: ${bestPic50.toFixed(2)}`,
+        content:
+          `New global best HIV protease inhibitor candidate found!\n` +
+          `pIC50: ${bestPic50.toFixed(2)} (prev: ${prevBest.toFixed(2)}, +${improvement.toFixed(2)})\n` +
+          `Day: ${dayNumber}, Cycle: ${cycleNumber}\n` +
+          (bestSmiles ? `SMILES: ${bestSmiles.substring(0, 80)}` : ""),
+      }).catch(() => {/* best-effort */});
+    }
   }
 }
 

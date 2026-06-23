@@ -43,8 +43,8 @@
 
 ## Pending / Future
 
-- [ ] Seed corpus on first cycle (auto-bootstrap from hiv_protease_corpus.json)
+- [x] Seed corpus on first cycle (auto-bootstrap from hiv_protease_corpus.json) — implemented in ensureCorpusSeeded(), runs at start of every cycle
 - [ ] Day-30 report generation — PDF/markdown export of top convergence candidates
-- [ ] Email notification when best pIC50 exceeds threshold
+- [x] Owner notification when new global best pIC50 is achieved — notifyOwner() fires on any new global best (isNewBest && bestPic50 > 0); threshold is the previous global best stored in cognitionStore.bestPic50Ever
 - [ ] SwissADME integration for ADMET verification
 - [ ] Quantum hardware upgrade — real IBM/Quafu backend when available
