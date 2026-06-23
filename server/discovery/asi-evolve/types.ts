@@ -87,7 +87,20 @@ export interface CognitionItem {
   content: string;
   /** Source identifier, e.g. "PubMed:12345678", "PDB:1HXW", "ChEMBL:CHEMBL123" */
   source: string;
-  source_type: 'pubmed' | 'pdb' | 'chembl' | 'bindingdb' | 'uniprot' | 'manual';
+  source_type:
+    | 'pubmed'          // NCBI PubMed
+    | 'europe_pmc'      // Europe PMC (40M+ open-access)
+    | 'openAlex'        // OpenAlex (250M+ works, citation graph)
+    | 'semanticScholar' // Semantic Scholar (200M+ papers)
+    | 'crossRef'        // Crossref DOI registry
+    | 'pdb'             // RCSB PDB (experimental structures)
+    | 'alphafold'       // AlphaFold DB (predicted structures)
+    | 'chembl'          // ChEMBL (IC50/Ki/Kd binding data)
+    | 'pubchem'         // PubChem (115M+ compounds, SMILES)
+    | 'uniprot'         // UniProt (protein sequence/function)
+    | 'clinicalTrials'  // ClinicalTrials.gov (450K+ studies)
+    | 'bindingdb'       // BindingDB
+    | 'manual';         // Manually curated heuristics
   /** Cosine-similarity embedding vector (384-dim sentence-transformer equivalent) */
   embedding: number[];
   created_at: number;

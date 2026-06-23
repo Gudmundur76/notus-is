@@ -9,11 +9,86 @@ import type { ResearchStrategy } from "./researcher";
 import { computeAdmet } from "../chemistry";
 import { quantumScore, predictPic50 } from "../predictor";
 import { verifyCandidatePublicDb } from "./verifier";
+import { fetchChEMBLRecords, fetchPubChemHIVCompounds, fetchPubChemBioassay } from "./public-db";
 
-// ─── Seed SMILES Library ──────────────────────────────────────────────────────
-// Validated HIV protease inhibitor scaffolds from ChEMBL/PDB/literature
+// ─── Dynamic Seed SMILES Library ────────────────────────────────────────────
+// Bootstrapped from ttruthdesk sources: PubChem + ChEMBL + static fallbacks
+// Static fallbacks are used when the live APIs are unreachable.
 
-const SEED_SMILES: Record<string, string[]> = {
+let _dynamicSeeds: Record<string, string[]> | null = null;
+let _seedFetchedAt = 0;
+const SEED_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+/** Fetch live seeds from PubChem and ChEMBL; fall back to static library. */
+async function getDynamicSeeds(): Promise<Record<string, string[]>> {
+  const now = Date.now();
+  if (_dynamicSeeds && now - _seedFetchedAt < SEED_CACHE_TTL_MS) {
+    return _dynamicSeeds;
+  }
+
+  const liveSeeds: Record<string, string[]> = {
+    hydroxyethylamine: [],
+    bis_thf: [],
+    cyclic_urea: [],
+    dihydropyrone: [],
+  };
+
+  try {
+    // PubChem: HIV protease inhibitor compounds
+    const [nameCompounds, bioassayCompounds] = await Promise.all([
+      fetchPubChemHIVCompounds(20),
+      fetchPubChemBioassay(30),
+    ]);
+    const pubchemSmiles = [...nameCompounds, ...bioassayCompounds]
+      .filter(c => c.smiles && c.smiles.length > 10 && c.smiles.length < 200)
+      .map(c => c.smiles)
+      .slice(0, 20);
+    // Distribute PubChem seeds across tracks
+    for (let i = 0; i < pubchemSmiles.length; i++) {
+      const track = ["hydroxyethylamine", "bis_thf", "cyclic_urea", "dihydropyrone"][i % 4];
+      liveSeeds[track].push(pubchemSmiles[i]);
+    }
+    console.log(`[Engineer] PubChem seeds: ${pubchemSmiles.length}`);
+  } catch (e) {
+    console.warn("[Engineer] PubChem seed fetch failed:", (e as Error).message);
+  }
+
+  try {
+    // ChEMBL: high-affinity HIV protease binders (pIC50 >= 8 = IC50 <= 10nM)
+    const chemblRecords = await fetchChEMBLRecords(50);
+    const highAffinity = chemblRecords
+      .filter(r => r.pchembl_value >= 8.0 && r.smiles && r.smiles.length > 10 && r.smiles.length < 200)
+      .sort((a, b) => b.pchembl_value - a.pchembl_value)
+      .slice(0, 20);
+    // Distribute ChEMBL seeds across tracks by pIC50 quartile
+    highAffinity.forEach((r, i) => {
+      const track = ["hydroxyethylamine", "bis_thf", "cyclic_urea", "dihydropyrone"][i % 4];
+      liveSeeds[track].push(r.smiles);
+    });
+    console.log(`[Engineer] ChEMBL seeds: ${highAffinity.length} (pIC50 >= 8.0)`);
+  } catch (e) {
+    console.warn("[Engineer] ChEMBL seed fetch failed:", (e as Error).message);
+  }
+
+  // Merge with static fallbacks (live seeds take priority, static fills gaps)
+  const merged: Record<string, string[]> = {};
+  for (const [track, staticSeeds] of Object.entries(STATIC_SEED_SMILES)) {
+    const live = liveSeeds[track] || [];
+    // Deduplicate: live seeds first, then static seeds not already in live
+    const liveSet = new Set(live);
+    const combined = [...live, ...staticSeeds.filter(s => !liveSet.has(s))];
+    merged[track] = combined.slice(0, 10); // max 10 per track
+  }
+
+  _dynamicSeeds = merged;
+  _seedFetchedAt = now;
+  const total = Object.values(merged).reduce((s, a) => s + a.length, 0);
+  console.log(`[Engineer] Seed library refreshed: ${total} total scaffolds`);
+  return merged;
+}
+
+/** Static fallback seed library — used when live APIs are unreachable */
+const STATIC_SEED_SMILES: Record<string, string[]> = {
   // Track A: Hydroxyethylamine scaffolds (saquinavir/lopinavir family)
   hydroxyethylamine: [
     "CC(C)(C)NC(=O)[C@@H]1C[C@@H]2CCCC[C@@H]2CN1C[C@@H](O)[C@H](Cc1ccccc1)NC(=O)[C@H](CC(=O)N)NC(=O)c1ccc2ccccc2n1",
@@ -118,11 +193,14 @@ export async function executeStrategy(
 ): Promise<EvolveResults> {
   const allCandidates: CandidateResult[] = [];
   const tracks = ["A", "B", "C", "D"] as const;
+
+  // Fetch live seeds from PubChem + ChEMBL (with static fallback)
+  const seedLib = await getDynamicSeeds();
   const trackSeeds = [
-    SEED_SMILES.hydroxyethylamine,
-    SEED_SMILES.bis_thf,
-    SEED_SMILES.cyclic_urea,
-    SEED_SMILES.dihydropyrone,
+    seedLib.hydroxyethylamine,
+    seedLib.bis_thf,
+    seedLib.cyclic_urea,
+    seedLib.dihydropyrone,
   ];
 
   for (let t = 0; t < 4; t++) {

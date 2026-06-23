@@ -194,19 +194,14 @@ export async function getRunStats(runId: number): Promise<{
 
 // ─── Run Management ───────────────────────────────────────────────────────────
 
-/** Get or create the active HIV protease evolve run */
+/** Get or create the active HIV protease evolve run — race-safe via INSERT IGNORE */
 export async function getOrCreateRun(name: string = "hiv-protease-run-1"): Promise<number> {
   const db = getPool();
-  const [rows] = await db.execute(
-    `SELECT id FROM evolve_runs WHERE name = ? LIMIT 1`,
-    [name]
-  ) as [any[], any];
-
-  if (rows.length > 0) return rows[0].id;
-
   const now = Date.now();
-  const [result] = await db.execute(
-    `INSERT INTO evolve_runs 
+
+  // INSERT IGNORE: silently skips if the unique name already exists
+  await db.execute(
+    `INSERT IGNORE INTO evolve_runs 
      (name, objective, sampling_algorithm, ucb1_c, eval_score_target, max_steps,
       step_count, best_score, best_node_id, status, started_at, updated_at, metadata)
      VALUES (?, ?, 'ucb1', 1.414, 9.5, 100, 0, 0.0, NULL, 'running', ?, ?, ?)`,
@@ -217,9 +212,15 @@ export async function getOrCreateRun(name: string = "hiv-protease-run-1"): Promi
       now,
       JSON.stringify({ domain: "HIV-1 protease inhibitor", target: "IC50 < 1nM" }),
     ]
-  ) as [any, any];
+  );
 
-  return (result as any).insertId;
+  // Always fetch the id (works whether we just inserted or it already existed)
+  const [rows] = await db.execute(
+    `SELECT id FROM evolve_runs WHERE name = ? LIMIT 1`,
+    [name]
+  ) as [any[], any];
+
+  return rows[0].id;
 }
 
 // ─── Serialization ───────────────────────────────────────────────────────────

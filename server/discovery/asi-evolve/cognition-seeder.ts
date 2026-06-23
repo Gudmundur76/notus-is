@@ -1,28 +1,82 @@
 /**
  * ASI-Evolve Cognition Seeder
- * Seeds the cognition store with verified knowledge from public databases.
+ * Seeds the cognition store with verified knowledge from all 10 ttruthdesk sources.
  * Runs at the start of each evolution run and refreshes every N steps.
  * Source of truth: https://github.com/GAIR-NLP/ASI-Evolve
+ *
+ * Sources (matching ttruthdesk adapter names):
+ *   1. pubchem              — PubChem NIH (115M+ compounds, bioassay)
+ *   2. chembl               — ChEMBL EMBL-EBI (IC50/Ki/Kd binding data)
+ *   3. structuralBiology    — RCSB PDB (experimental structures)
+ *   4. uniprotVertical      — UniProt (protein sequence, active site)
+ *   5. alphafold            — AlphaFold DB (predicted structures)
+ *   6. europe_pmc           — Europe PMC (40M+ open-access life sciences)
+ *   7. openAlex             — OpenAlex (250M+ works, citation graph)
+ *   8. semanticScholar      — Semantic Scholar (200M+ papers)
+ *   9. clinicalTrialsVertical — ClinicalTrials.gov (450K+ studies)
+ *  10. crossRef             — Crossref DOI registry (130M+ DOIs)
  */
 
 import { addCognitionBatch, getCognitionCount } from "./cognition";
 import {
-  fetchPubMedRecords,
+  // PubChem
+  fetchPubChemHIVCompounds,
+  fetchPubChemBioassay,
+  pubchemToCognitionContent,
+  // ChEMBL
   fetchChEMBLRecords,
-  fetchPDBRecords,
-  fetchUniProtRecord,
-  pubmedToCognitionContent,
   chemblToCognitionContent,
+  // PDB
+  fetchPDBRecords,
   pdbToCognitionContent,
+  // UniProt
+  fetchUniProtRecord,
   uniprotToCognitionContent,
+  // AlphaFold
+  fetchAlphaFoldRecord,
+  alphaFoldToCognitionContent,
+  // Europe PMC
+  fetchEuropePMCRecords,
+  europePMCToCognitionContent,
+  // OpenAlex
+  fetchOpenAlexRecords,
+  openAlexToCognitionContent,
+  // Semantic Scholar
+  fetchSemanticScholarRecords,
+  semanticScholarToCognitionContent,
+  // ClinicalTrials
+  fetchClinicalTrialRecords,
+  clinicalTrialToCognitionContent,
+  // CrossRef
+  fetchCrossRefRecords,
+  crossRefToCognitionContent,
+  // Legacy PubMed
+  fetchPubMedRecords,
+  pubmedToCognitionContent,
 } from "./public-db";
 import type { CognitionItem } from "./types";
 
+function makeItem(
+  runId: number,
+  content: string,
+  source: string,
+  source_type: CognitionItem["source_type"],
+  metadata: Record<string, unknown> = {}
+): Omit<CognitionItem, "id"> {
+  return {
+    run_id: runId,
+    content: content.slice(0, 1000),
+    source,
+    source_type,
+    embedding: [],
+    created_at: Date.now(),
+    metadata,
+  };
+}
+
 /**
- * Seed the cognition store from all public databases.
+ * Seed the cognition store from all 10 public databases.
  * Idempotent: skips if already seeded (count > 0).
- * Per SKILL.md: "Seed cognition only with insight-like external knowledge
- * that is safe to reuse across rounds."
  */
 export async function seedCognitionStore(
   runId: number,
@@ -34,124 +88,178 @@ export async function seedCognitionStore(
     return { added: 0, sources: {} };
   }
 
-  console.log("[Cognition] Seeding from public databases...");
+  console.log("[Cognition] Seeding from all 10 ttruthdesk sources...");
   const items: Omit<CognitionItem, "id">[] = [];
   const sources: Record<string, number> = {};
 
-  // 1. UniProt — HIV-1 protease protein data (seed once, very stable)
+  // ── 1. PubChem ──────────────────────────────────────────────────────────────
   try {
-    const uniprot = await fetchUniProtRecord();
-    if (uniprot) {
-      items.push({
-        run_id: runId,
-        content: uniprotToCognitionContent(uniprot),
-        source: "UniProt:P04585",
-        source_type: "uniprot",
-        embedding: [],
-        created_at: Date.now(),
-        metadata: { accession: uniprot.accession },
-      });
-      sources.uniprot = 1;
+    const [nameCompounds, bioassayCompounds] = await Promise.all([
+      fetchPubChemHIVCompounds(30),
+      fetchPubChemBioassay(50),
+    ]);
+    const allPubChem = [...nameCompounds, ...bioassayCompounds];
+    for (const c of allPubChem) {
+      if (!c.smiles) continue;
+      items.push(makeItem(runId, pubchemToCognitionContent(c), `PubChem:${c.cid}`, "pubchem", {
+        cid: c.cid, smiles: c.smiles, mw: c.molecular_weight,
+      }));
     }
-  } catch (e) {
-    console.warn("[Cognition] UniProt fetch failed:", e);
-  }
+    sources.pubchem = allPubChem.length;
+    console.log(`[Cognition] PubChem: +${allPubChem.length}`);
+  } catch (e) { console.warn("[Cognition] PubChem failed:", (e as Error).message); }
 
-  // 2. PubMed — HIV protease inhibitor literature
+  // ── 2. ChEMBL ───────────────────────────────────────────────────────────────
   try {
-    const pubmedRecords = await fetchPubMedRecords(
-      "HIV protease inhibitor pIC50 IC50 binding affinity crystal structure",
-      15
-    );
-    for (const rec of pubmedRecords) {
-      const content = pubmedToCognitionContent(rec);
-      if (content.length > 50) {
-        items.push({
-          run_id: runId,
-          content,
-          source: `PubMed:${rec.pmid}`,
-          source_type: "pubmed",
-          embedding: [],
-          created_at: Date.now(),
-          metadata: { pmid: rec.pmid, year: rec.year, journal: rec.journal },
-        });
-      }
-    }
-    sources.pubmed = pubmedRecords.length;
-  } catch (e) {
-    console.warn("[Cognition] PubMed fetch failed:", e);
-  }
-
-  // 3. ChEMBL — HIV protease bioassay records
-  try {
-    const chemblRecords = await fetchChEMBLRecords(20);
-    for (const rec of chemblRecords) {
-      if (rec.pchembl_value >= 7.0) { // Only high-affinity compounds (pIC50 >= 7 = IC50 <= 100nM)
-        items.push({
-          run_id: runId,
-          content: chemblToCognitionContent(rec),
-          source: `ChEMBL:${rec.chembl_id}`,
-          source_type: "chembl",
-          embedding: [],
-          created_at: Date.now(),
-          metadata: {
-            chembl_id: rec.chembl_id,
-            smiles: rec.smiles,
-            pchembl_value: rec.pchembl_value,
-          },
-        });
+    const chemblRecords = await fetchChEMBLRecords(100);
+    for (const a of chemblRecords) {
+      if (a.pchembl_value >= 6.0) { // pIC50 >= 6 = IC50 <= 1µM
+        items.push(makeItem(runId, chemblToCognitionContent(a), `ChEMBL:${a.chembl_id}`, "chembl", {
+          chembl_id: a.chembl_id, smiles: a.smiles, pchembl_value: a.pchembl_value,
+        }));
       }
     }
     sources.chembl = chemblRecords.length;
-  } catch (e) {
-    console.warn("[Cognition] ChEMBL fetch failed:", e);
-  }
+    console.log(`[Cognition] ChEMBL: +${chemblRecords.length}`);
+  } catch (e) { console.warn("[Cognition] ChEMBL failed:", (e as Error).message); }
 
-  // 4. PDB — HIV protease co-crystal structures
+  // ── 3. RCSB PDB ─────────────────────────────────────────────────────────────
   try {
-    const pdbRecords = await fetchPDBRecords(10);
-    for (const rec of pdbRecords) {
-      items.push({
-        run_id: runId,
-        content: pdbToCognitionContent(rec),
-        source: `PDB:${rec.pdb_id}`,
-        source_type: "pdb",
-        embedding: [],
-        created_at: Date.now(),
-        metadata: { pdb_id: rec.pdb_id, resolution: rec.resolution },
-      });
+    const pdbRecords = await fetchPDBRecords(20);
+    for (const r of pdbRecords) {
+      items.push(makeItem(runId, pdbToCognitionContent(r), `PDB:${r.pdb_id}`, "pdb", {
+        pdb_id: r.pdb_id, resolution: r.resolution,
+      }));
     }
     sources.pdb = pdbRecords.length;
-  } catch (e) {
-    console.warn("[Cognition] PDB fetch failed:", e);
-  }
+    console.log(`[Cognition] PDB: +${pdbRecords.length}`);
+  } catch (e) { console.warn("[Cognition] PDB failed:", (e as Error).message); }
 
-  // 5. Manual seed — key HIV protease inhibitor heuristics from literature
-  const manualSeeds: string[] = [
-    "HIV-1 protease is a homodimeric aspartyl protease. The catalytic dyad consists of Asp25 and Asp125. All approved inhibitors bind in the substrate-binding cleft and make hydrogen bonds with Asp25/Asp125.",
-    "Lipinski's Rule of Five for HIV protease inhibitors: MW < 500, LogP < 5, HBD < 5, HBA < 10. Approved drugs (saquinavir, ritonavir, lopinavir) violate some rules but maintain oral bioavailability through formulation.",
-    "The bis-THF (bis-tetrahydrofuran) P2 ligand in darunavir forms unique hydrogen bonds with Asp29 and Asp30 backbone amides, contributing to its exceptional potency (Ki = 4.5 pM) and resistance profile.",
-    "P1' pocket of HIV protease accommodates hydrophobic groups. Phenyl, naphthyl, and cyclopentyl groups at P1' improve binding. The P2' position tolerates small polar groups.",
-    "Flap region (residues 45-55) of HIV protease undergoes conformational change upon inhibitor binding. Flap water molecule mediates key hydrogen bonds between inhibitor and Ile50/Ile150.",
-    "ADMET requirements for HIV protease inhibitors: TPSA < 140 Å², rotatable bonds < 10, MW < 700 (peptidomimetics can be larger), LogP 1-5 for membrane permeability.",
-    "Resistance mutations in HIV protease: D30N, V32I, M46I/L, I47V/A, G48V, I50L/V, I54L/M/T/V, L76V, V82A/F/T/S, I84V, L90M. Darunavir maintains activity against most single mutations.",
-    "Quantum chemistry calculations (DFT, QAOA-VQE) can predict binding free energies more accurately than classical force fields for HIV protease inhibitors. Correlation with experimental pIC50: r² > 0.8 for high-quality datasets.",
-    "Scaffold hopping from hydroxyethylamine to hydroxyethylsulfonamide or cyclic urea maintains protease inhibition while improving metabolic stability. Tipranavir uses a dihydropyrone scaffold.",
-    "Fragment-based drug design for HIV protease: fragments binding in P2 pocket (IC50 < 1mM) can be grown toward P1' to achieve nanomolar inhibitors. Key fragment: 4-aminobenzamide.",
+  // ── 4. UniProt ──────────────────────────────────────────────────────────────
+  try {
+    const uniprotRecord = await fetchUniProtRecord();
+    if (uniprotRecord) {
+      items.push(makeItem(runId, uniprotToCognitionContent(uniprotRecord), `UniProt:${uniprotRecord.accession}`, "uniprot", {
+        accession: uniprotRecord.accession,
+        active_sites: uniprotRecord.active_sites,
+        binding_sites: uniprotRecord.binding_sites,
+      }));
+      // Sequence as separate item
+      if (uniprotRecord.sequence) {
+        const seqContent = `[UniProt:P04585-seq] HIV-1 protease sequence (${uniprotRecord.sequence.length} aa). Active site: Asp25-Thr26-Gly27. Flap: Ile47-Gly51. Sequence: ${uniprotRecord.sequence.slice(0, 200)}`;
+        items.push(makeItem(runId, seqContent, "UniProt:P04585-sequence", "uniprot", { sequence_length: uniprotRecord.sequence.length }));
+      }
+      sources.uniprot = 2;
+      console.log("[Cognition] UniProt: +2");
+    }
+  } catch (e) { console.warn("[Cognition] UniProt failed:", (e as Error).message); }
+
+  // ── 5. AlphaFold ────────────────────────────────────────────────────────────
+  try {
+    const afRecord = await fetchAlphaFoldRecord();
+    if (afRecord) {
+      items.push(makeItem(runId, alphaFoldToCognitionContent(afRecord), `AlphaFold:${afRecord.accession}`, "alphafold", {
+        accession: afRecord.accession, pdb_url: afRecord.pdbUrl, mean_plddt: afRecord.meanPlddt,
+      }));
+      sources.alphafold = 1;
+      console.log("[Cognition] AlphaFold: +1");
+    }
+  } catch (e) { console.warn("[Cognition] AlphaFold failed:", (e as Error).message); }
+
+  // ── 6. Europe PMC ───────────────────────────────────────────────────────────
+  try {
+    const epmc = await fetchEuropePMCRecords(20);
+    for (const r of epmc) {
+      items.push(makeItem(runId, europePMCToCognitionContent(r), `EuropePMC:${r.pmid || r.pmcid}`, "europe_pmc", {
+        pmid: r.pmid, doi: r.doi, citation_count: r.citation_count, is_open_access: r.is_open_access,
+      }));
+    }
+    sources.europe_pmc = epmc.length;
+    console.log(`[Cognition] Europe PMC: +${epmc.length}`);
+  } catch (e) { console.warn("[Cognition] Europe PMC failed:", (e as Error).message); }
+
+  // ── 7. OpenAlex ─────────────────────────────────────────────────────────────
+  try {
+    const oaWorks = await fetchOpenAlexRecords(20);
+    for (const w of oaWorks) {
+      items.push(makeItem(runId, openAlexToCognitionContent(w), `OpenAlex:${w.id.split("/").pop()}`, "openAlex", {
+        id: w.id, doi: w.doi, cited_by_count: w.cited_by_count,
+      }));
+    }
+    sources.openAlex = oaWorks.length;
+    console.log(`[Cognition] OpenAlex: +${oaWorks.length}`);
+  } catch (e) { console.warn("[Cognition] OpenAlex failed:", (e as Error).message); }
+
+  // ── 8. Semantic Scholar ─────────────────────────────────────────────────────
+  try {
+    const s2Papers = await fetchSemanticScholarRecords(20);
+    for (const p of s2Papers) {
+      items.push(makeItem(runId, semanticScholarToCognitionContent(p), `S2:${p.paper_id}`, "semanticScholar", {
+        paper_id: p.paper_id, doi: p.doi, influential_citation_count: p.influential_citation_count,
+      }));
+    }
+    sources.semanticScholar = s2Papers.length;
+    console.log(`[Cognition] Semantic Scholar: +${s2Papers.length}`);
+  } catch (e) { console.warn("[Cognition] Semantic Scholar failed:", (e as Error).message); }
+
+  // ── 9. ClinicalTrials.gov ───────────────────────────────────────────────────
+  try {
+    const trials = await fetchClinicalTrialRecords(15);
+    for (const t of trials) {
+      items.push(makeItem(runId, clinicalTrialToCognitionContent(t), `ClinicalTrials:${t.nct_id}`, "clinicalTrials", {
+        nct_id: t.nct_id, status: t.status, phase: t.phase,
+      }));
+    }
+    sources.clinicalTrials = trials.length;
+    console.log(`[Cognition] ClinicalTrials: +${trials.length}`);
+  } catch (e) { console.warn("[Cognition] ClinicalTrials failed:", (e as Error).message); }
+
+  // ── 10. CrossRef ────────────────────────────────────────────────────────────
+  try {
+    const crWorks = await fetchCrossRefRecords(20);
+    for (const w of crWorks) {
+      items.push(makeItem(runId, crossRefToCognitionContent(w), `CrossRef:${w.doi}`, "crossRef", {
+        doi: w.doi, journal: w.journal, citation_count: w.citation_count,
+      }));
+    }
+    sources.crossRef = crWorks.length;
+    console.log(`[Cognition] CrossRef: +${crWorks.length}`);
+  } catch (e) { console.warn("[Cognition] CrossRef failed:", (e as Error).message); }
+
+  // ── Legacy PubMed (NCBI E-utilities) ────────────────────────────────────────
+  try {
+    const [general, structural, clinical] = await Promise.all([
+      fetchPubMedRecords("HIV protease inhibitor pIC50 binding affinity", 10),
+      fetchPubMedRecords("HIV protease crystal structure inhibitor binding site", 5),
+      fetchPubMedRecords("HIV protease inhibitor clinical resistance mechanism", 5),
+    ]);
+    const allPubMed = [...general, ...structural, ...clinical];
+    for (const r of allPubMed) {
+      if (pubmedToCognitionContent(r).length > 50) {
+        items.push(makeItem(runId, pubmedToCognitionContent(r), `PubMed:${r.pmid}`, "pubmed", {
+          pmid: r.pmid, year: r.year, journal: r.journal,
+        }));
+      }
+    }
+    sources.pubmed = allPubMed.length;
+    console.log(`[Cognition] PubMed: +${allPubMed.length}`);
+  } catch (e) { console.warn("[Cognition] PubMed failed:", (e as Error).message); }
+
+  // ── Manual heuristics (always added) ────────────────────────────────────────
+  const heuristics = [
+    "HIV-1 protease is a homodimeric aspartyl protease (99 aa per monomer). Active site: Asp25-Thr26-Gly27. Flap region (45-55) controls substrate access. Key resistance mutations: D30N, V32I, M46I/L, I47V/A, G48V, I50L/V, I54L/M/V, L76V, V82A/F/T/S, I84V, N88D/S, L90M.",
+    "Drug-likeness for HIV protease inhibitors: MW < 700, LogP 1-5, HBD ≤ 5, HBA ≤ 10, TPSA < 140 Å². Approved drugs: Saquinavir (MW=670), Ritonavir (MW=721), Indinavir (MW=614), Nelfinavir (MW=568), Lopinavir (MW=629), Atazanavir (MW=705), Darunavir (MW=548), Tipranavir (MW=603).",
+    "pIC50 scoring: pIC50 = -log10(IC50 in M). Target: pIC50 > 9 (< 1 nM). Excellent: 8-9 (1-10 nM). Good: 7-8 (10-100 nM). Moderate: 6-7 (100-1000 nM). Best known: Darunavir pIC50 ~10.3 (IC50 ~0.005 nM).",
+    "Pharmacophore for HIV protease inhibitors: (1) Central hydroxyl/transition-state isostere (hydroxyethylamine, hydroxyethylene) mimicking tetrahedral intermediate. (2) P2/P2' substituents filling S2/S2' pockets. (3) P1/P1' aromatic groups for S1/S1' pocket. (4) Flap-water hydrogen bond network.",
+    "Scaffold diversity: Track A = ChEMBL top actives (hydroxyethylamine). Track B = PDB co-crystals (structure-guided). Track C = BindingDB curated (bis-THF, carbamate). Track D = novel scaffolds (macrocycles, fragments). Convergence candidates appear in 2+ tracks.",
+    "Quantum scoring uses VQE (Variational Quantum Eigensolver) for electronic binding energy. Quantum advantage expected for flexible flap region (residues 45-55) where classical force fields have known limitations.",
+    "ASI-Evolve loop: Learn (seed cognition from 10 public databases) → Design (Researcher LLM generates strategy via UCB1-sampled context) → Experiment (Engineer generates 200 candidates, RF ensemble + quantum VQE) → Analyze (Analyzer LLM extracts lessons, updates cognition). Repeat every 4 hours.",
   ];
 
-  for (const content of manualSeeds) {
-    items.push({
-      run_id: runId,
-      content,
-      source: "manual:heuristics",
-      source_type: "manual",
-      embedding: [],
-      created_at: Date.now(),
-      metadata: {},
-    });
+  for (let i = 0; i < heuristics.length; i++) {
+    items.push(makeItem(runId, heuristics[i], `manual:heuristic-${i + 1}`, "manual", { index: i }));
   }
-  sources.manual = manualSeeds.length;
+  sources.manual = heuristics.length;
 
   if (items.length > 0) {
     await addCognitionBatch(items);
@@ -162,30 +270,52 @@ export async function seedCognitionStore(
 }
 
 /**
- * Refresh cognition with new PubMed/ChEMBL records.
- * Called every 10 steps to keep the store current.
+ * Incremental refresh — fetches new records from high-velocity sources.
+ * Called every COGNITION_REFRESH_EVERY steps (default: 10).
  */
 export async function refreshCognitionStore(runId: number): Promise<number> {
   const newItems: Omit<CognitionItem, "id">[] = [];
+  console.log("[Cognition] Incremental refresh from high-velocity sources...");
 
+  // Europe PMC — highest velocity (new papers daily)
   try {
-    const pubmedRecords = await fetchPubMedRecords(
-      "HIV protease inhibitor novel scaffold 2024 2025",
-      5
-    );
-    for (const rec of pubmedRecords) {
-      const content = pubmedToCognitionContent(rec);
-      if (content.length > 50) {
-        newItems.push({
-          run_id: runId,
-          content,
-          source: `PubMed:${rec.pmid}`,
-          source_type: "pubmed",
-          embedding: [],
-          created_at: Date.now(),
-          metadata: { pmid: rec.pmid, year: rec.year },
-        });
+    const epmc = await fetchEuropePMCRecords(10);
+    for (const r of epmc) {
+      newItems.push(makeItem(runId, europePMCToCognitionContent(r), `EuropePMC:${r.pmid || r.pmcid}`, "europe_pmc", {
+        pmid: r.pmid, doi: r.doi,
+      }));
+    }
+  } catch { /* non-fatal */ }
+
+  // OpenAlex — large citation graph, good for trend detection
+  try {
+    const oaWorks = await fetchOpenAlexRecords(10);
+    for (const w of oaWorks) {
+      newItems.push(makeItem(runId, openAlexToCognitionContent(w), `OpenAlex:${w.id.split("/").pop()}`, "openAlex", {
+        id: w.id, doi: w.doi,
+      }));
+    }
+  } catch { /* non-fatal */ }
+
+  // ChEMBL — new bioassay data
+  try {
+    const chembl = await fetchChEMBLRecords(20);
+    for (const a of chembl) {
+      if (a.pchembl_value >= 6.0) {
+        newItems.push(makeItem(runId, chemblToCognitionContent(a), `ChEMBL:${a.chembl_id}`, "chembl", {
+          chembl_id: a.chembl_id, pchembl_value: a.pchembl_value,
+        }));
       }
+    }
+  } catch { /* non-fatal */ }
+
+  // CrossRef — new DOIs
+  try {
+    const crWorks = await fetchCrossRefRecords(10);
+    for (const w of crWorks) {
+      newItems.push(makeItem(runId, crossRefToCognitionContent(w), `CrossRef:${w.doi}`, "crossRef", {
+        doi: w.doi,
+      }));
     }
   } catch { /* non-fatal */ }
 
@@ -193,5 +323,6 @@ export async function refreshCognitionStore(runId: number): Promise<number> {
     await addCognitionBatch(newItems);
   }
 
+  console.log(`[Cognition] Incremental refresh: +${newItems.length} items`);
   return newItems.length;
 }
