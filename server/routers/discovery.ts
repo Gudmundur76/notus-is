@@ -39,6 +39,11 @@ import {
   listClaimsByVertical,
   buildCandidateClaim,
 } from "../discovery/asi-evolve/citation-client";
+import {
+  verifyCandidates,
+  buildCandidateClaims,
+  createRealCitationClient,
+} from "../discovery/candidate-claim";
 import { TRPCError } from "@trpc/server";
 
 export const discoveryRouter = router({
@@ -511,6 +516,71 @@ export const discoveryRouter = router({
       timestamp: new Date().toISOString(),
     };
   }),
+
+  // ── Verified Candidates ─────────────────────────────────────────────────────
+  /**
+   * Retrieve candidates from the DB and run them through the full
+   * CandidateClaim / verifyCandidates() pipeline on-demand.
+   *
+   * Accepts an optional `limit` (default 10, max 50) to cap the number of
+   * candidates submitted to citation.manus.space in a single call.
+   */
+  verifiedCandidates: publicProcedure
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(50).default(10),
+        track: z.enum(["A", "B", "C", "D"]).optional(),
+        minPic50: z.number().optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { candidates: [], total: 0 };
+
+      // Build filter conditions
+      const conditions = [];
+      if (input.track) {
+        conditions.push(eq(candidatesTable.track, input.track));
+      }
+      if (input.minPic50 != null) {
+        conditions.push(gte(candidatesTable.pic50Predicted, input.minPic50));
+      }
+
+      const rows = await db
+        .select()
+        .from(candidatesTable)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(candidatesTable.pic50Predicted))
+        .limit(input.limit);
+
+      if (rows.length === 0) return { candidates: [], total: 0 };
+
+      // Run through the verifyCandidates() layer
+      const client = await createRealCitationClient();
+      const verified = await verifyCandidates(rows, client, {
+        vertical: "structural_biology",
+        queryHint: "HIV protease inhibitor small molecule binding affinity pIC50",
+      });
+
+      return {
+        candidates: verified.map((vc) => ({
+          candidateId: vc.claim.candidateId,
+          smiles: vc.claim.smiles,
+          compoundName: vc.claim.compoundName,
+          pic50: vc.claim.pic50,
+          source: vc.claim.source,
+          track: vc.candidate.track,
+          citationVerdict: vc.citationVerdict,
+          citationConfidence: vc.citationConfidence,
+          citationDocId: vc.citationDocId,
+          citationEvidence: vc.citationEvidence,
+          citationGatePassed: vc.citationGatePassed,
+          scoreModifier: vc.scoreModifier,
+          verifiedAt: vc.verifiedAt,
+        })),
+        total: rows.length,
+      };
+    }),
 
   // ── Track distribution ───────────────────────────────────────────────────────
   trackDistribution: publicProcedure.query(async () => {

@@ -45,6 +45,13 @@ import {
   verdictScoreModifier,
 } from "./asi-evolve/citation-client";
 
+// Candidate-claim verification layer
+import {
+  verifyCandidates,
+  type VerifiedCandidate,
+} from "./candidate-claim";
+import type { Candidate } from "../../drizzle/schema";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types (re-exported from schema for convenience)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -385,15 +392,8 @@ export async function runVerificationCycle(): Promise<VerificationCycle> {
   console.log(`[VerificationCycle ${cycleId}] Phase 3: VERIFY`);
   phases.verification = startPhase(phases.verification);
 
-  interface VerificationResult {
-    smiles: string;
-    claim: string;
-    verdict: string;
-    confidence: number;
-    scoreModifier: number;
-  }
-
-  let verificationResults: VerificationResult[] = [];
+  // VerifiedCandidate[] from candidate-claim.ts — richer than the old ad-hoc shape
+  let verifiedCandidates: VerifiedCandidate[] = [];
 
   try {
     if (scoredCandidates.length === 0) {
@@ -402,51 +402,79 @@ export async function runVerificationCycle(): Promise<VerificationCycle> {
         "No scored candidates to verify"
       );
     } else {
-      // Take top-10 by pIC50
+      // Take top-10 by pIC50 and build lightweight Candidate-compatible objects
       const top10 = [...scoredCandidates]
         .sort((a, b) => b.pic50 - a.pic50)
         .slice(0, 10);
 
-      const verifyResults = await Promise.all(
-        top10.map(async (candidate, idx) => {
-          const claim = buildCandidateClaim({
-            name: `Candidate-${idx + 1}`,
-            smiles: candidate.smiles,
-            pic50: candidate.pic50,
-            track: candidate.track,
-          });
+      // Map ScoredCandidate → Candidate (DB type) for verifyCandidates()
+      const candidateRows: Candidate[] = top10.map((sc, idx) => ({
+        id: idx + 1,           // ephemeral id — not persisted here
+        cycleId: 0,
+        smiles: sc.smiles,
+        parentSmiles: null,
+        track: sc.track as "A" | "B" | "C" | "D",
+        modificationType: null,
+        pic50Predicted: sc.pic50,
+        confidenceScore: sc.confidence,
+        pic50Vqe: sc.pic50Vqe,
+        quantumHardware: sc.hardware,
+        quantumScore: sc.quantumScoreVal,
+        provenanceStatus: null,
+        citationVerdict: null,
+        citationConfidence: null,
+        citationGatePassed: false,
+        pubmedIds: [],
+        citationIds: [],
+        mw: null,
+        logp: null,
+        hbd: null,
+        hba: null,
+        tpsa: null,
+        lipinskiViolations: null,
+        isDruglike: true,
+        isNovel: true,
+        tanimotoToApproved: null,
+        isBestSoFar: false,
+        createdAt: new Date(),
+      }));
 
-          const result = await verifyClaim(claim);
-          if (!result) return null;
+      // Build the CitationClient adapter from the real module
+      const citationClient = {
+        verifyClaim,
+        buildCandidateClaim,
+        verdictScoreModifier,
+      };
 
-          return {
-            smiles: candidate.smiles,
-            claim,
-            verdict: result.verdict,
-            confidence: result.confidenceScore,
-            scoreModifier: verdictScoreModifier(result.verdict),
-          } as VerificationResult;
-        })
-      );
+      verifiedCandidates = await verifyCandidates(candidateRows, citationClient, {
+        vertical: "structural_biology",
+        queryHint: "HIV protease inhibitor small molecule binding affinity pIC50",
+      });
 
-      verificationResults = verifyResults.filter(
-        (r): r is VerificationResult => r !== null
-      );
-      claimsVerified = verificationResults.length;
+      claimsVerified = verifiedCandidates.length;
 
-      const supportedCount = verificationResults.filter(
-        (r) => r.verdict === "Supported"
+      const supportedCount = verifiedCandidates.filter(
+        (r) => r.citationVerdict === "Supported"
       ).length;
-      const contradictedCount = verificationResults.filter(
-        (r) => r.verdict === "Contradicted"
+      const contradictedCount = verifiedCandidates.filter(
+        (r) => r.citationVerdict === "Contradicted"
+      ).length;
+      const gatePassedCount = verifiedCandidates.filter(
+        (r) => r.citationGatePassed
       ).length;
 
       phases.verification = completePhase(
         phases.verification,
         claimsVerified,
         `Verified ${claimsVerified}/${top10.length} claims: ` +
-          `${supportedCount} Supported, ${contradictedCount} Contradicted`,
-        { supportedCount, contradictedCount, verificationRate: claimsVerified / top10.length }
+          `${supportedCount} Supported, ${contradictedCount} Contradicted, ` +
+          `${gatePassedCount} gate-passed`,
+        {
+          supportedCount,
+          contradictedCount,
+          gatePassedCount,
+          verificationRate: claimsVerified / top10.length,
+        }
       );
     }
   } catch (err) {
@@ -462,7 +490,7 @@ export async function runVerificationCycle(): Promise<VerificationCycle> {
   phases.cognition = startPhase(phases.cognition);
 
   try {
-    if (verificationResults.length === 0) {
+    if (verifiedCandidates.length === 0) {
       phases.cognition = skipPhase(
         phases.cognition,
         "No verification results to feed into cognition store"
@@ -471,25 +499,31 @@ export async function runVerificationCycle(): Promise<VerificationCycle> {
       const runId = await getOrCreateRun();
       let added = 0;
 
-      for (const vr of verificationResults) {
+      for (const vc of verifiedCandidates) {
         const content =
-          `[Citation Verdict | ${vr.verdict}] ${vr.claim} ` +
-          `(confidence: ${(vr.confidence * 100).toFixed(0)}%, ` +
-          `score modifier: ${vr.scoreModifier >= 0 ? "+" : ""}${vr.scoreModifier})`;
+          `[Citation Verdict | ${vc.citationVerdict}] ${vc.claim.claim} ` +
+          `(confidence: ${(vc.citationConfidence * 100).toFixed(0)}%, ` +
+          `score modifier: ${vc.scoreModifier >= 0 ? "+" : ""}${vc.scoreModifier}, ` +
+          `docId: ${vc.citationDocId || "none"}, ` +
+          `evidence: ${vc.citationEvidence.slice(0, 3).join(" | ")})`;
 
         await addCognitionItem({
           run_id: runId,
           content: content.slice(0, 1000),
-          source: `citation_verdict:${vr.verdict}:${vr.smiles.slice(0, 20)}`,
+          source: `citation_verdict:${vc.citationVerdict}:${vc.claim.smiles.slice(0, 20)}`,
           source_type: "manual",
           embedding: [],
           created_at: Date.now(),
           metadata: {
-            verdict: vr.verdict,
-            confidence: vr.confidence,
-            scoreModifier: vr.scoreModifier,
-            smiles: vr.smiles,
-            claim: vr.claim.slice(0, 200),
+            verdict: vc.citationVerdict,
+            confidence: vc.citationConfidence,
+            scoreModifier: vc.scoreModifier,
+            smiles: vc.claim.smiles,
+            claim: vc.claim.claim.slice(0, 200),
+            citationDocId: vc.citationDocId,
+            citationEvidence: vc.citationEvidence,
+            citationGatePassed: vc.citationGatePassed,
+            verifiedAt: vc.verifiedAt,
             phase: "verification_cycle",
           },
         });
