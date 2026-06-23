@@ -150,28 +150,28 @@ The verified claims corpus also feeds back into the cognition store as ground tr
 
 ## Phase-C — Unified VerificationCycle
 
-- [ ] verification_cycles DB table — cycleId, startedAt, completedAt, status, phases JSON, summary stats
-- [ ] VerificationCycle TypeScript interface — PhaseResult shape, 6-phase structure
-- [ ] runVerificationCycle() — Phase 1 DISCOVER via pythonBridge.query()
-- [ ] runVerificationCycle() — Phase 2 SCORE via ML ensemble + quantumScore()
-- [ ] runVerificationCycle() — Phase 3 VERIFY top-10 claims via citation.manus.space verifyClaim()
-- [ ] runVerificationCycle() — Phase 4 COGNITION feed verdicts into evolve_cognition
-- [ ] runVerificationCycle() — Phase 5 EVOLVE call runEvolveStep(), capture ASI-Evolve output
-- [ ] runVerificationCycle() — Phase 6 CONVERGENCE check termination, update loop_state
-- [ ] Replace Heartbeat scheduler to call runVerificationCycle() instead of runSingleCycle() + runEvolveStep()
-- [ ] discovery.verificationCycles tRPC procedure — paginated cycle history
-- [ ] discovery.latestCycle tRPC procedure — most recent cycle with full phase breakdown
-- [ ] verification-cycle.test.ts — 6 unit tests (one per phase + full cycle integration)
+- [x] verification_cycles DB table — cycleId, startedAt, completedAt, status, phases JSON, summary stats
+- [x] VerificationCycle TypeScript interface — PhaseResult shape, 6-phase structure
+- [x] runVerificationCycle() — Phase 1 DISCOVER via pythonBridge.query()
+- [x] runVerificationCycle() — Phase 2 SCORE via ML ensemble + quantumScore()
+- [x] runVerificationCycle() — Phase 3 VERIFY top-10 claims via citation.manus.space verifyClaim()
+- [x] runVerificationCycle() — Phase 4 COGNITION feed verdicts into evolve_cognition
+- [x] runVerificationCycle() — Phase 5 EVOLVE call runEvolveStep(), capture ASI-Evolve output
+- [x] runVerificationCycle() — Phase 6 CONVERGENCE check termination, update loop_state
+- [x] Replace Heartbeat scheduler to call runVerificationCycle() instead of runSingleCycle() + runEvolveStep()
+- [x] discovery.verificationCycles tRPC procedure — paginated cycle history
+- [x] discovery.latestCycle tRPC procedure — most recent cycle with full phase breakdown
+- [x] verification-cycle.test.ts — 14 unit tests (one per phase + full cycle integration)
 
 ## Phase D — Real-Time Monitoring Dashboard
 
-- [ ] Create client/src/components/verification/CycleStatusCard.tsx
-- [ ] Create client/src/components/verification/PhaseProgressBar.tsx
-- [ ] Create client/src/components/verification/StatsCards.tsx
-- [ ] Create client/src/components/verification/TrendChart.tsx
-- [ ] Create client/src/components/verification/CycleHistoryTable.tsx
-- [ ] Create client/src/components/verification/VerdictBreakdown.tsx
-- [ ] Create client/src/components/verification/index.ts (barrel export)
-- [ ] Create client/src/pages/VerificationDashboard.tsx
-- [ ] Add /verification-dashboard route to App.tsx
-- [ ] Add "Verification" nav link to Navbar (logged-in only)
+- [x] Create client/src/components/verification/CycleStatusCard.tsx
+- [x] Create client/src/components/verification/PhaseProgressBar.tsx
+- [x] Create client/src/components/verification/StatsCards.tsx
+- [x] Create client/src/components/verification/TrendChart.tsx
+- [x] Create client/src/components/verification/CycleHistoryTable.tsx
+- [x] Create client/src/components/verification/VerdictBreakdown.tsx
+- [x] Create client/src/components/verification/index.ts (barrel export)
+- [x] Create client/src/pages/VerificationDashboard.tsx
+- [x] Add /verification-dashboard route to App.tsx
+- [x] Add "Verification" nav link to Navbar (logged-in only)
