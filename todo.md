@@ -73,7 +73,7 @@
 
 - [ ] Day-30 report generation — PDF/markdown export of top convergence candidates (requires 30 days data)
 - [ ] SwissADME integration — requires registered API key
-- [ ] Quantum hardware upgrade — real IBM/Quafu backend when credentials available
+- [x] Quantum hardware upgrade — real Wukong hardware via pyqpanda3 (Phase 6), full_amplitude active, WK_C180_2 readydentials available
 
 ## ASI-Evolve Phase 4 (Exact Source Fidelity)
 

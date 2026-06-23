@@ -8,13 +8,16 @@
  * On first call the model is trained from the corpus (auto-bootstrap).
  * Subsequent calls use the cached model.
  *
- * Quantum scoring (WuKong / Quafu / Jiuzhang) is integrated via the
- * QuantumPredictor class which wraps the external quantum APIs.
+ * Quantum scoring (WuKong via pyqpanda3 / Quafu / Jiuzhang) is integrated via
+ * the quantumScore() function. WuKong runs wukong_vqe.py as a Python subprocess
+ * against Origin Quantum Cloud (qcloud.originqc.com.cn).
  */
 
 import { RandomForestRegression } from "ml-random-forest";
 import { HIV_PROTEASE_CORPUS } from "./corpus-data";
 import { generateFingerprint } from "./chemistry";
+import { spawn } from "child_process";
+import path from "path";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -223,6 +226,11 @@ const QUANTUM_DUAL_WEIGHTS = {
  * The quantum score is a VQE-based binding affinity proxy in [0, 1].
  * It is converted to a pIC50 contribution via:
  *   pic50_vqe = base_pic50 * (1 + 0.1 * quantum_score)
+ *
+ * Provenance is set accurately based on which backend actually ran:
+ *   QUANTUM_DUAL  — two or more real/sim quantum backends
+ *   QUANTUM_SIM   — one quantum backend (real hardware or free simulator)
+ *   CLASSICAL     — all backends fell back to CPU heuristic
  */
 export async function quantumScore(
   smiles: string,
@@ -238,15 +246,13 @@ export async function quantumScore(
   const scores: Record<string, number> = {};
   const hardwareUsed: string[] = [];
 
-  // ── WuKong (Origin Pilot OS) ──────────────────────────────────────────────
+  // ── WuKong (pyqpanda3 → Origin Quantum Cloud) ─────────────────────────────
   if (wukongApiKey) {
-    try {
-      const wukongScore = await callWukongApi(smiles, wukongApiKey);
-      scores.wukong = wukongScore;
-      hardwareUsed.push("WuKong");
-    } catch (err) {
-      console.warn("[Quantum] WuKong failed:", err);
-      scores.wukong = angleBasedFallback(smiles);
+    const { score, backendUsed } = await callWukongApi(smiles, wukongApiKey);
+    scores.wukong = score;
+    // Only count as quantum hardware if a real/sim quantum backend was used
+    if (backendUsed !== "classical_fallback") {
+      hardwareUsed.push(backendUsed === "WK_C180_2" ? "WuKong-HW" : "WuKong-Sim");
     }
   } else {
     scores.wukong = angleBasedFallback(smiles);
@@ -318,33 +324,67 @@ function angleBasedFallback(smiles: string): number {
 }
 
 /**
- * WuKong quantum API call (Origin Pilot OS).
- * POST to the WuKong REST endpoint with a VQE circuit encoded from SMILES.
+ * WuKong quantum VQE via pyqpanda3 Python subprocess.
+ *
+ * Runs server/discovery/wukong_vqe.py which submits a real VQE circuit to
+ * Origin Quantum Cloud (qcloud.originqc.com.cn). Backend selection:
+ *   WUKONG_BACKEND=WK_C180_2      → real 180-qubit Wukong hardware (needs QPU credits)
+ *   WUKONG_BACKEND=full_amplitude  → free cloud simulator, exact quantum state (default)
+ *   WUKONG_BACKEND=auto            → prefer WK_C180_2 if available, else full_amplitude
+ *
+ * Returns both the score and the actual backend used so quantumScore() can
+ * set provenance accurately (classical_fallback ≠ quantum hardware).
  */
-async function callWukongApi(smiles: string, apiKey: string): Promise<number> {
-  const endpoint = process.env.WUKONG_API_URL || "https://qcloud.originqc.com.cn/api/v1/vqe";
-  const circuit = encodeSmilesToCircuit(smiles);
+async function callWukongApi(
+  smiles: string,
+  apiKey: string
+): Promise<{ score: number; backendUsed: string }> {
+  const scriptPath = path.resolve(__dirname, "wukong_vqe.py");
+  const backend = process.env.WUKONG_BACKEND ?? "full_amplitude";
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      circuit,
-      shots: 1024,
-      backend: "wukong",
-    }),
-    signal: AbortSignal.timeout(120_000),
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+
+    const child = spawn("python3", [scriptPath, smiles, apiKey, backend], {
+      timeout: 360_000, // 6 min — allows 300s poll + startup overhead
+    });
+
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+
+    child.on("close", () => {
+      try {
+        const result = JSON.parse(stdout.trim()) as {
+          score: number;
+          backend: string;
+          error?: string;
+          n_qubits?: number;
+        };
+        if (result.error) {
+          console.warn(`[Quantum] wukong_vqe fallback (${result.backend}): ${result.error}`);
+        } else {
+          console.log(
+            `[Quantum] WuKong VQE score=${result.score} ` +
+            `backend=${result.backend} qubits=${result.n_qubits ?? 0}`
+          );
+        }
+        resolve({
+          score: result.score ?? angleBasedFallback(smiles),
+          backendUsed: result.backend ?? "classical_fallback",
+        });
+      } catch {
+        console.warn("[Quantum] wukong_vqe parse error. stdout:", stdout.slice(0, 200));
+        if (stderr) console.warn("[Quantum] stderr:", stderr.slice(0, 200));
+        resolve({ score: angleBasedFallback(smiles), backendUsed: "classical_fallback" });
+      }
+    });
+
+    child.on("error", (err: Error) => {
+      console.warn("[Quantum] wukong_vqe spawn error:", err.message);
+      resolve({ score: angleBasedFallback(smiles), backendUsed: "classical_fallback" });
+    });
   });
-
-  if (!response.ok) {
-    throw new Error(`WuKong API error: ${response.status}`);
-  }
-
-  const data = (await response.json()) as { score?: number; result?: { score: number } };
-  return data.score ?? data.result?.score ?? angleBasedFallback(smiles);
 }
 
 /**
@@ -378,7 +418,7 @@ async function callQuafuApi(smiles: string, apiKey: string): Promise<number> {
 
 /**
  * Encode SMILES molecular features as a simple VQE circuit descriptor.
- * This is a simplified encoding — a full implementation would use pyqpanda3.
+ * Used as fallback circuit representation for Quafu (REST API).
  */
 function encodeSmilesToCircuit(smiles: string): Record<string, unknown> {
   const nAtoms = Math.min((smiles.match(/[A-Z]/g) || []).length, 8);
