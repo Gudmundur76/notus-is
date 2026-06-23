@@ -12,6 +12,10 @@ import {
   discoveryLoopHandler,
   registerDiscoveryLoopHeartbeat,
 } from "../scheduled/discovery-loop";
+import {
+  verificationCycleHandler,
+  registerVerificationCycleHeartbeat,
+} from "../scheduled/verification-cycle-loop";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -45,6 +49,7 @@ async function startServer() {
   // These are called by the Manus Heartbeat service (cron jobs).
   // All scheduled routes MUST start with /api/scheduled/
   app.post("/api/scheduled/discovery-loop", discoveryLoopHandler);
+  app.post("/api/scheduled/verification-cycle", verificationCycleHandler);
 
   // tRPC API
   app.use(
@@ -71,10 +76,13 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
 
-    // Register the discovery loop heartbeat job after server is listening
-    // Non-blocking: failure to register does not prevent server startup
+    // Register both Heartbeat cron jobs after server is listening.
+    // Non-blocking: failure to register does not prevent server startup.
     registerDiscoveryLoopHeartbeat().catch(err => {
       console.warn("[Startup] Failed to register discovery heartbeat:", err);
+    });
+    registerVerificationCycleHeartbeat().catch(err => {
+      console.warn("[Startup] Failed to register verification-cycle heartbeat:", err);
     });
   });
 }
