@@ -25,6 +25,11 @@ import {
 } from "../../drizzle/schema";
 import { eq, desc, asc, and, gte, lte, count, like, or } from "drizzle-orm";
 import { getLoopStats, getLoopStatus, runSingleCycle } from "../discovery/loop";
+import {
+  runVerificationCycle,
+  getVerificationCycles,
+  getLatestVerificationCycle,
+} from "../discovery/verification-cycle";
 import { pythonBridge } from "../discovery/python-bridge";
 import { getEvolveStatus, runEvolveStep } from "../discovery/asi-evolve/orchestrator";
 import { getAllNodes, getBestNode, getOrCreateRun } from "../discovery/asi-evolve/database";
@@ -452,6 +457,58 @@ export const discoveryRouter = router({
       tsSources: all.length - pythonOnly.length,
       pythonEngineAvailable: Object.values(health).some(Boolean),
       adapterHealth: health,
+    };
+  }),
+
+  // ── Verification Cycles ─────────────────────────────────────────────────────
+
+  /**
+   * Paginated list of all verification cycles.
+   * Each cycle captures all 6 phases with timing, item counts, and results.
+   */
+  verificationCycles: publicProcedure
+    .input(
+      z.object({
+        page:     z.number().int().min(1).default(1),
+        pageSize: z.number().int().min(1).max(50).default(20),
+      })
+    )
+    .query(async ({ input }) => {
+      return await getVerificationCycles(input.page, input.pageSize);
+    }),
+
+  /**
+   * Fetch the most recent verification cycle (or null if none have run yet).
+   */
+  latestVerificationCycle: publicProcedure.query(async () => {
+    return await getLatestVerificationCycle();
+  }),
+
+  /**
+   * Manually trigger a unified 6-phase verification cycle.
+   * Protected: owner only. Responds immediately; cycle runs in background.
+   */
+  triggerVerificationCycle: protectedProcedure.mutation(async ({ ctx }) => {
+    if (ctx.user.role !== "admin") {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Owner only" });
+    }
+
+    // Fire-and-forget: cycle persists its own state to DB
+    runVerificationCycle().then(result => {
+      console.log(
+        `[tRPC] Manual verification cycle ${result.cycleId} ${result.status}: ` +
+        `discovered=${result.candidatesDiscovered}, scored=${result.candidatesScored}, ` +
+        `verified=${result.claimsVerified}, evolve=${result.evolveStepName ?? "none"}, ` +
+        `convergence=${result.convergenceReached}, duration=${result.durationMs}ms`
+      );
+    }).catch(err => {
+      console.error("[tRPC] Verification cycle error:", err);
+    });
+
+    return {
+      status: "accepted",
+      message: "Verification cycle started. Poll latestVerificationCycle for progress.",
+      timestamp: new Date().toISOString(),
     };
   }),
 

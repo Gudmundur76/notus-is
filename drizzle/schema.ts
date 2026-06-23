@@ -237,3 +237,57 @@ export const evolveCognition = mysqlTable("evolve_cognition", {
 
 export type EvolveCognitionItem = typeof evolveCognition.$inferSelect;
 export type InsertEvolveCognitionItem = typeof evolveCognition.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PHASE-C: VERIFICATION CYCLE TABLE
+// Unified 6-phase cycle: DISCOVER → SCORE → VERIFY → COGNITION → EVOLVE → CONVERGENCE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type PhaseStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+
+export interface PhaseResult {
+  status: PhaseStatus;
+  startedAt: number;   // epoch ms
+  completedAt: number; // epoch ms
+  durationMs: number;
+  itemsProcessed: number;
+  summary: string;
+  error?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface VerificationCyclePhases {
+  discovery:   PhaseResult;
+  scoring:     PhaseResult;
+  verification: PhaseResult;
+  cognition:   PhaseResult;
+  evolve:      PhaseResult;
+  convergence: PhaseResult;
+}
+
+/**
+ * Verification cycles — one row per runVerificationCycle() invocation.
+ * Captures all 6 phases with timing, item counts, and structured results.
+ */
+export const verificationCycles = mysqlTable("verification_cycles", {
+  id:          int("id").autoincrement().primaryKey(),
+  cycleId:     varchar("cycle_id", { length: 36 }).notNull().unique(), // UUID
+  startedAt:   timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  status:      mysqlEnum("status", ["running", "completed", "failed"]).notNull().default("running"),
+  phases:      json("phases").$type<VerificationCyclePhases>(),
+  // Summary stats (denormalised for quick tRPC queries)
+  candidatesDiscovered: int("candidates_discovered").notNull().default(0),
+  candidatesScored:     int("candidates_scored").notNull().default(0),
+  claimsVerified:       int("claims_verified").notNull().default(0),
+  cognitionItemsAdded:  int("cognition_items_added").notNull().default(0),
+  evolveStepName:       varchar("evolve_step_name", { length: 64 }),
+  evolveScore:          float("evolve_score"),
+  convergenceReached:   boolean("convergence_reached").notNull().default(false),
+  bestPic50:            float("best_pic50"),
+  errorMessage:         text("error_message"),
+  durationMs:           int("duration_ms"),
+});
+
+export type VerificationCycleRow = typeof verificationCycles.$inferSelect;
+export type InsertVerificationCycleRow = typeof verificationCycles.$inferInsert;

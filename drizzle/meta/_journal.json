@@ -15,6 +15,13 @@
       "when": 1782300000000,
       "tag": "0001_asi_evolve_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1782236303678,
+      "tag": "0002_mysterious_susan_delgado",
+      "breakpoints": true
     }
   ]
 }

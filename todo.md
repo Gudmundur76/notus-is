@@ -137,3 +137,28 @@ The verified claims corpus also feeds back into the cognition store as ground tr
 - [x] discovery.pythonHealth tRPC procedure — calls pythonBridge.healthCheck()
 - [x] discovery.pythonQuantumScore tRPC mutation — calls pythonBridge.quantumScore()
 - [x] ESM-safe __dirname via fileURLToPath(import.meta.url)
+
+## Phase-B — Python Adapter + Source Registry
+
+- [x] server/discovery/python-adapter.ts — 65-source unified registry (15 TS-native + 50 Python-only)
+- [x] server/discovery/python-adapter.test.ts — 4 unit tests for source registry
+- [x] seedFromPythonDiscovery() in cognition-seeder.ts — feeds Python engine results into evolve_cognition
+- [x] orchestrator.ts Learn phase — calls seedFromPythonDiscovery() after standard seeding
+- [x] server/discovery/index.ts — barrel export for discovery module
+- [x] discovery.sourceRegistry tRPC procedure — browse all 65 sources by domain
+- [x] discovery.pythonAdapterStatus tRPC procedure — live health of Python engine
+
+## Phase-C — Unified VerificationCycle
+
+- [ ] verification_cycles DB table — cycleId, startedAt, completedAt, status, phases JSON, summary stats
+- [ ] VerificationCycle TypeScript interface — PhaseResult shape, 6-phase structure
+- [ ] runVerificationCycle() — Phase 1 DISCOVER via pythonBridge.query()
+- [ ] runVerificationCycle() — Phase 2 SCORE via ML ensemble + quantumScore()
+- [ ] runVerificationCycle() — Phase 3 VERIFY top-10 claims via citation.manus.space verifyClaim()
+- [ ] runVerificationCycle() — Phase 4 COGNITION feed verdicts into evolve_cognition
+- [ ] runVerificationCycle() — Phase 5 EVOLVE call runEvolveStep(), capture ASI-Evolve output
+- [ ] runVerificationCycle() — Phase 6 CONVERGENCE check termination, update loop_state
+- [ ] Replace Heartbeat scheduler to call runVerificationCycle() instead of runSingleCycle() + runEvolveStep()
+- [ ] discovery.verificationCycles tRPC procedure — paginated cycle history
+- [ ] discovery.latestCycle tRPC procedure — most recent cycle with full phase breakdown
+- [ ] verification-cycle.test.ts — 6 unit tests (one per phase + full cycle integration)

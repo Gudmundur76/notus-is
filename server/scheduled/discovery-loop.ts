@@ -20,6 +20,7 @@ import {
 } from "../_core/heartbeat";
 import { runSingleCycle } from "../discovery/loop";
 import { runEvolveStep } from "../discovery/asi-evolve/orchestrator";
+import { runVerificationCycle } from "../discovery/verification-cycle";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -110,23 +111,28 @@ export async function discoveryLoopHandler(req: Request, res: Response): Promise
     timestamp: new Date().toISOString(),
   });
 
-  // Run both engines in parallel (non-blocking)
-  Promise.allSettled([
-    runSingleCycle().then(result => {
+  // Run the unified 6-phase verification cycle (non-blocking).
+  // This replaces the previous disconnected pair of runSingleCycle() + runEvolveStep().
+  // Phase 5 (EVOLVE) internally calls runEvolveStep(); legacy runSingleCycle() is kept
+  // as a fallback in case the unified cycle fails to initialise.
+  runVerificationCycle()
+    .then(result => {
       console.log(
-        `[Scheduled] Legacy cycle ${result.cycleNumber} complete: ` +
-        `${result.candidatesGenerated} generated, ${result.candidatesVerified} verified, ` +
-        `best pIC50=${result.bestPic50.toFixed(2)}, duration=${result.durationMs}ms`
+        `[Scheduled] VerificationCycle ${result.cycleId} ${result.status}: ` +
+        `discovered=${result.candidatesDiscovered}, scored=${result.candidatesScored}, ` +
+        `verified=${result.claimsVerified}, cognition+=${result.cognitionItemsAdded}, ` +
+        `evolve=${result.evolveStepName ?? "none"}, convergence=${result.convergenceReached}, ` +
+        `duration=${result.durationMs}ms`
       );
-    }),
-    runEvolveStep().then(result => {
-      console.log(
-        `[Scheduled] ASI-Evolve ${result.step_name} complete: ` +
-        `score=${result.score.toFixed(3)}, best_pic50=${result.best_pic50.toFixed(2)}, ` +
-        `new_best=${result.is_new_best}, elapsed=${result.elapsed_ms}ms`
-      );
-    }),
-  ]).catch(err => {
-    console.error("[Scheduled] Engine run failed:", err);
-  });
+    })
+    .catch(err => {
+      console.error("[Scheduled] VerificationCycle failed, falling back to legacy loop:", err);
+      // Graceful fallback: run legacy engines independently
+      Promise.allSettled([
+        runSingleCycle(),
+        runEvolveStep(),
+      ]).catch(fallbackErr => {
+        console.error("[Scheduled] Fallback also failed:", fallbackErr);
+      });
+    });
 }
