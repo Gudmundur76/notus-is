@@ -120,3 +120,20 @@ The verified claims corpus also feeds back into the cognition store as ground tr
 ### Frontend
 - [x] Dashboard: citation verdict badge on best candidate card (Supported / Contradicted / Ambiguous) — links to citation.manus.space
 - [x] Findings page: citation verdict badge on each CandidateCard — CITE: Supported/Contradicted/Ambiguous badge with link
+
+## Phase 6 — Wukong Quantum VQE (Real Hardware)
+
+- [x] wukong_vqe.py — Python script that builds and submits real VQE circuits via pyqpanda3 QCloudService
+- [x] callWukongApi() in predictor.ts — replaced stub REST call with Python subprocess spawning wukong_vqe.py
+- [x] WUKONG_BACKEND env var — full_amplitude (default, free), WK_C180_2 (real hardware), auto
+- [x] Graceful fallback — classical heuristic on timeout/error, subprocess always exits 0
+- [x] Provenance tracking — backendUsed returned from subprocess, hardwareUsed only set when not classical_fallback
+
+## Phase-A — Python Bridge Layer
+
+- [x] server/discovery/python-bridge.ts — query, quantumScore, healthCheck with 30s timeout and graceful fallback
+- [x] server/discovery/python-bridge.test.ts — 6 unit tests (query parse, ENOENT fallback, log-stripping, healthCheck, healthCheck fallback, quantumScore)
+- [x] discovery.queryPython tRPC procedure — calls pythonBridge.query()
+- [x] discovery.pythonHealth tRPC procedure — calls pythonBridge.healthCheck()
+- [x] discovery.pythonQuantumScore tRPC mutation — calls pythonBridge.quantumScore()
+- [x] ESM-safe __dirname via fileURLToPath(import.meta.url)
