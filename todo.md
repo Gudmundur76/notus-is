@@ -182,3 +182,7 @@ These items are NOT code gaps. They are explicitly deferred pending external pre
 
 - [ ] Day-30 report PDF export — DEFERRED: markdown export is fully functional; PDF generation requires 30 days of live data to be scientifically meaningful
 - [ ] SwissADME integration — DEFERRED: requires user-provided SwissADME API key (contact SwissADME team at https://www.swissadme.ch/)
+
+## Phase H — Developer Tooling
+
+- [x] scripts/setup.sh — automated 6-step project setup (prereq checks, pnpm install, pip install, DB setup, .env creation, integration diagnostic). Flags: --skip-python, --skip-db, --skip-diag. .env template matches user-provided spec.
