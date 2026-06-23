@@ -199,9 +199,12 @@ At any point during the 30-day run, click **Day 30 Report →** in the Verificat
 
 ```bash
 pnpm test           # run 130 Vitest tests
-npx tsc --noEmit    # TypeScript type-check
+pnpm check          # TypeScript type-check
 pnpm db:push        # apply Drizzle migrations
 pnpm build          # production build → dist/
+pnpm diagnostic     # run integration diagnostic (requires DATABASE_URL)
+pnpm test-quantum   # run quantum backend smoke test
+pnpm setup          # re-run the automated setup script
 ```
 
 ---
