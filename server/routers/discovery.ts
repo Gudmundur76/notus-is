@@ -25,6 +25,7 @@ import {
 } from "../../drizzle/schema";
 import { eq, desc, asc, and, gte, lte, count, like, or } from "drizzle-orm";
 import { getLoopStats, getLoopStatus, runSingleCycle } from "../discovery/loop";
+import { pythonBridge } from "../discovery/python-bridge";
 import { getEvolveStatus, runEvolveStep } from "../discovery/asi-evolve/orchestrator";
 import { getAllNodes, getBestNode, getOrCreateRun } from "../discovery/asi-evolve/database";
 import {
@@ -371,6 +372,51 @@ export const discoveryRouter = router({
       };
     }),
 
+
+  // ── Python discovery engine bridge ──────────────────────────────────────────
+  /**
+   * Run a query against the parallel Python discovery engine (60 data sources).
+   * Returns an empty report with error field if the Python engine is not installed.
+   */
+  queryPython: publicProcedure
+    .input(
+      z.object({
+        query: z.string().min(1).max(500),
+        domains: z.array(z.string()).optional(),
+        useQuantum: z.boolean().default(true),
+        maxResults: z.number().int().min(1).max(200).default(50),
+      })
+    )
+    .query(async ({ input }) => {
+      return pythonBridge.query({
+        query: input.query,
+        domains: input.domains,
+        useQuantum: input.useQuantum,
+        maxResults: input.maxResults,
+      });
+    }),
+
+  /**
+   * Health check — returns adapter availability map from the Python engine.
+   * Returns { python_engine: false } if the engine is not installed.
+   */
+  pythonHealth: publicProcedure.query(async () => {
+    return pythonBridge.healthCheck();
+  }),
+
+  /**
+   * Batch quantum scoring via the Python engine's VQE pipeline.
+   * Falls back to zero-score entries if the engine is unavailable.
+   */
+  pythonQuantumScore: publicProcedure
+    .input(
+      z.object({
+        smiles: z.array(z.string().min(1).max(500)).min(1).max(50),
+      })
+    )
+    .mutation(async ({ input }) => {
+      return pythonBridge.quantumScore(input.smiles);
+    }),
 
   // ── Track distribution ───────────────────────────────────────────────────────
   trackDistribution: publicProcedure.query(async () => {
