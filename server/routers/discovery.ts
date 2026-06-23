@@ -58,6 +58,7 @@ import {
   createRealCitationClient,
 } from "../discovery/candidate-claim";
 import { evolveDiscoveryQuery } from "../discovery/query-evolver";
+import { generateReport, renderReportMarkdown } from "../discovery/report-generator";
 import { TRPCError } from "@trpc/server";
 
 export const discoveryRouter = router({
@@ -847,5 +848,45 @@ export const discoveryRouter = router({
         });
       }
       return runSingleDomain(input.domainId as DomainId);
+    }),
+
+  // ── Day-30 Report ─────────────────────────────────────────────────────────
+
+  /**
+   * Generate a scientific campaign report (JSON payload).
+   * Public — anyone can view the report.
+   */
+  generateReport: publicProcedure
+    .input(
+      z.object({
+        topN: z.number().int().min(1).max(50).default(10),
+        dayWindowDays: z.number().int().min(1).max(90).default(30),
+      }).optional()
+    )
+    .query(async ({ input }) => {
+      return generateReport({
+        topN: input?.topN ?? 10,
+        dayWindowDays: input?.dayWindowDays ?? 30,
+      });
+    }),
+
+  /**
+   * Generate a scientific campaign report as Markdown text.
+   * Public — used for the download button on the dashboard.
+   */
+  generateReportMarkdown: publicProcedure
+    .input(
+      z.object({
+        topN: z.number().int().min(1).max(50).default(10),
+        dayWindowDays: z.number().int().min(1).max(90).default(30),
+      }).optional()
+    )
+    .query(async ({ input }) => {
+      const report = await generateReport({
+        topN: input?.topN ?? 10,
+        dayWindowDays: input?.dayWindowDays ?? 30,
+      });
+      const markdown = renderReportMarkdown(report);
+      return { markdown, generatedAt: report.generatedAt, dayNumber: report.dayNumber };
     }),
 });

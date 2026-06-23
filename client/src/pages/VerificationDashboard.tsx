@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   CycleStatusCard,
@@ -10,8 +10,9 @@ import {
   DomainSelector,
   DomainStats,
 } from "@/components/verification";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 // ─── Types (mirrored from server, no shared import needed) ────────────────────
 
@@ -65,6 +66,7 @@ export default function VerificationDashboard() {
   const [historyPage, setHistoryPage] = useState(1);
   const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"cycles" | "domains">("cycles");
+  const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const PAGE_SIZE = 10;
 
   // ── tRPC queries with polling ──────────────────────────────────────────────
@@ -125,6 +127,40 @@ export default function VerificationDashboard() {
 
   const isLoading = statusLoading || statsLoading;
 
+  // ── Day-30 Report download ─────────────────────────────────────────────────
+  const reportMarkdownQuery = trpc.discovery.generateReportMarkdown.useQuery(
+    undefined,
+    { enabled: false } // Only fetch on demand
+  );
+
+  const handleDownloadReport = useCallback(async () => {
+    setIsDownloadingReport(true);
+    try {
+      const result = await reportMarkdownQuery.refetch();
+      if (!result.data?.markdown) {
+        toast.error("Report generation failed — no data returned");
+        return;
+      }
+      const { markdown, generatedAt, dayNumber } = result.data;
+      const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const dateStr = generatedAt.split("T")[0];
+      a.download = `notus-is-report-day${dayNumber}-${dateStr}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`Day-${dayNumber} report downloaded`);
+    } catch (err) {
+      console.error("Report download failed:", err);
+      toast.error("Report download failed — check console for details");
+    } finally {
+      setIsDownloadingReport(false);
+    }
+  }, [reportMarkdownQuery]);
+
   return (
     <div
       className="min-h-screen"
@@ -172,6 +208,26 @@ export default function VerificationDashboard() {
             >
               <RefreshCw size={14} />
               Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+              style={{
+                borderColor: "rgba(16,185,129,0.4)",
+                color: "#10B981",
+                backgroundColor: "rgba(16,185,129,0.08)",
+              }}
+              onClick={handleDownloadReport}
+              disabled={isDownloadingReport}
+              title="Download scientific campaign report as Markdown"
+            >
+              {isDownloadingReport ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <FileDown size={14} />
+              )}
+              {isDownloadingReport ? "Generating…" : "Download Report"}
             </Button>
           </div>
         </div>

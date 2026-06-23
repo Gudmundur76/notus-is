@@ -71,7 +71,7 @@
 
 ## Long-term Research Milestones
 
-- [ ] Day-30 report generation — PDF/markdown export of top convergence candidates (requires 30 days data)
+- [x] Day-30 report generation — server/discovery/report-generator.ts (generateReport + renderReportMarkdown), 2 tRPC procedures (generateReport, generateReportMarkdown), 15 Vitest tests, Download Report button on /verification-dashboard
 - [ ] SwissADME integration — requires registered API key
 - [x] Quantum hardware upgrade — real Wukong hardware via pyqpanda3 (Phase 6), full_amplitude active, WK_C180_2 readydentials available
 
@@ -175,3 +175,8 @@ The verified claims corpus also feeds back into the cognition store as ground tr
 - [x] Create client/src/pages/VerificationDashboard.tsx
 - [x] Add /verification-dashboard route to App.tsx
 - [x] Add "Verification" nav link to Navbar (logged-in only)
+
+## Phase G — Report Enhancement (Future)
+
+- [ ] Day-30 report PDF export — client-side PDF generation via browser print/jsPDF (deferred: requires 30 days of live data to be meaningful; markdown export is fully functional)
+- [ ] SwissADME integration — requires user-provided API key (deferred: no key available)
