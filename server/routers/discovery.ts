@@ -418,6 +418,43 @@ export const discoveryRouter = router({
       return pythonBridge.quantumScore(input.smiles);
     }),
 
+  // ── Source registry ────────────────────────────────────────────────────────
+  sourceRegistry: publicProcedure
+    .input(z.object({ domain: z.string().optional() }).optional())
+    .query(async ({ input }) => {
+      const { getAllSources, getSourcesByDomain } = await import("../discovery/python-adapter");
+      const sources = input?.domain
+        ? getSourcesByDomain(input.domain)
+        : getAllSources();
+      return {
+        total: sources.length,
+        sources: sources.map(s => ({
+          id: s.id,
+          name: s.name,
+          domain: s.domain,
+          adapterType: s.adapterType,
+          isQuantumEligible: s.isQuantumEligible,
+          isNative: s.isNative,
+          sourceUrl: s.sourceUrl,
+        })),
+      };
+    }),
+
+  // ── Python adapter status ────────────────────────────────────────────────────
+  pythonAdapterStatus: publicProcedure.query(async () => {
+    const { getAllSources, getPythonOnlySources } = await import("../discovery/python-adapter");
+    const all = getAllSources();
+    const pythonOnly = getPythonOnlySources();
+    const health = await pythonBridge.healthCheck();
+    return {
+      totalSources: all.length,
+      pythonSources: pythonOnly.length,
+      tsSources: all.length - pythonOnly.length,
+      pythonEngineAvailable: Object.values(health).some(Boolean),
+      adapterHealth: health,
+    };
+  }),
+
   // ── Track distribution ───────────────────────────────────────────────────────
   trackDistribution: publicProcedure.query(async () => {
     const db = await getDb();

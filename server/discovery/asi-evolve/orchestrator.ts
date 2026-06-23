@@ -18,7 +18,7 @@
  * Source of truth: https://github.com/GAIR-NLP/ASI-Evolve
  */
 
-import { seedCognitionStore, refreshCognitionStore } from "./cognition-seeder";
+import { seedCognitionStore, refreshCognitionStore, seedFromPythonDiscovery } from "./cognition-seeder";
 import { sampleNodes, recordNode, getBestNode, getOrCreateRun, getRunStats } from "./database";
 import { IslandSampler } from "./island-sampler";
 import { generateStrategy } from "./researcher";
@@ -141,9 +141,25 @@ export async function runEvolveStep(): Promise<{
     const seedResult = await seedCognitionStore(runId);
     cognitionAdded = seedResult.added;
     console.log(`[ASI-Evolve] Cognition seeded: ${cognitionAdded} items from 10 sources`);
+    // Python discovery engine: seed from 60 additional sources on first step
+    const pythonAdded = await seedFromPythonDiscovery(runId);
+    if (pythonAdded > 0) {
+      cognitionAdded += pythonAdded;
+      console.log(`[ASI-Evolve] Python discovery: +${pythonAdded} items (total: ${cognitionAdded})`);
+    }
   } else if (stepNum % COGNITION_REFRESH_EVERY === 0) {
     cognitionAdded = await refreshCognitionStore(runId);
     console.log(`[ASI-Evolve] Cognition refreshed: +${cognitionAdded} items`);
+    // Python discovery engine: incremental refresh every COGNITION_REFRESH_EVERY steps
+    const pythonAdded = await seedFromPythonDiscovery(
+      runId,
+      "HIV protease inhibitor novel scaffold binding affinity",
+      20,
+    );
+    if (pythonAdded > 0) {
+      cognitionAdded += pythonAdded;
+      console.log(`[ASI-Evolve] Python discovery refresh: +${pythonAdded} items`);
+    }
   }
 
   // ── Phase 2: Design ───────────────────────────────────────────────────────

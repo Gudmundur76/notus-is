@@ -391,3 +391,81 @@ export async function refreshCognitionStore(runId: number): Promise<number> {
   console.log(`[Cognition] Incremental refresh: +${newItems.length} items`);
   return newItems.length;
 }
+
+// ── Python Discovery Engine Seeding ──────────────────────────────────────────
+
+/**
+ * seedFromPythonDiscovery
+ *
+ * Queries the Python discovery engine (60 sources) for HIV protease-related
+ * knowledge and upserts the top results into the cognition store.
+ *
+ * Called from the orchestrator Learn phase after each ASI-Evolve step.
+ * Falls back gracefully if the Python engine is not installed.
+ *
+ * @param runId       The current evolve run ID (number)
+ * @param query       The search query (defaults to HIV protease inhibitor discovery)
+ * @param maxResults  Maximum results to ingest (default 30)
+ * @returns Number of new cognition items added
+ */
+export async function seedFromPythonDiscovery(
+  runId: number,
+  query = "HIV protease inhibitor small molecule binding affinity pIC50",
+  maxResults = 30,
+): Promise<number> {
+  // Lazy import to avoid circular dependency and allow graceful fallback
+  let bridgeModule: Awaited<typeof import("../python-bridge")>;
+  try {
+    bridgeModule = await import("../python-bridge");
+  } catch {
+    console.warn("[Cognition] python-bridge not available — skipping Python seeding");
+    return 0;
+  }
+
+  let report: Awaited<ReturnType<typeof bridgeModule.pythonBridge.query>>;
+  try {
+    report = await bridgeModule.pythonBridge.query({
+      query,
+      domains: ["molecular", "structural_biology", "literature"],
+      useQuantum: false,
+      maxResults,
+    });
+  } catch (err) {
+    console.warn("[Cognition] Python discovery query failed:", err);
+    return 0;
+  }
+
+  if (!report.topResults || report.topResults.length === 0) {
+    return 0;
+  }
+
+  const newItems = report.topResults.map((result) => {
+    const content =
+      `[Python Discovery | ${result.source}] ${result.title}. ${result.abstract ?? ""}`.trim().slice(0, 1000);
+    return makeItem(
+      runId,
+      content,
+      `python_discovery:${result.source}:${result.id}`,
+      "europe_pmc" as CognitionItem["source_type"], // closest generic type
+      {
+        python_source: result.source,
+        python_id: result.id,
+        query,
+        total_records: report.totalRecords,
+        quantum_score: report.quantumScores?.[result.id] ?? null,
+      },
+    );
+  });
+
+  if (newItems.length > 0) {
+    await addCognitionBatch(newItems);
+    const sourceSummary = report.sourceBreakdown
+      ? Object.keys(report.sourceBreakdown).join(", ")
+      : "multiple sources";
+    console.log(
+      `[Cognition] Python discovery: +${newItems.length} items from ${sourceSummary}`,
+    );
+  }
+
+  return newItems.length;
+}
