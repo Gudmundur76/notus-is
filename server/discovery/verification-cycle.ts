@@ -48,6 +48,7 @@ import {
 // Candidate-claim verification layer
 import {
   verifyCandidates,
+  feedbackVerdictsToCognition,
   type VerifiedCandidate,
 } from "./candidate-claim";
 import type { Candidate } from "../../drizzle/schema";
@@ -496,45 +497,19 @@ export async function runVerificationCycle(): Promise<VerificationCycle> {
         "No verification results to feed into cognition store"
       );
     } else {
+      // Delegate to feedbackVerdictsToCognition() which handles:
+      //   - verdict-specific priority and content framing
+      //   - source_type mapping (chembl / pubchem / manual)
+      //   - soft-upsert deduplication (skips rows already present for this run)
+      //   - full provenance metadata (candidateId, smiles, pic50, evidence, etc.)
       const runId = await getOrCreateRun();
-      let added = 0;
-
-      for (const vc of verifiedCandidates) {
-        const content =
-          `[Citation Verdict | ${vc.citationVerdict}] ${vc.claim.claim} ` +
-          `(confidence: ${(vc.citationConfidence * 100).toFixed(0)}%, ` +
-          `score modifier: ${vc.scoreModifier >= 0 ? "+" : ""}${vc.scoreModifier}, ` +
-          `docId: ${vc.citationDocId || "none"}, ` +
-          `evidence: ${vc.citationEvidence.slice(0, 3).join(" | ")})`;
-
-        await addCognitionItem({
-          run_id: runId,
-          content: content.slice(0, 1000),
-          source: `citation_verdict:${vc.citationVerdict}:${vc.claim.smiles.slice(0, 20)}`,
-          source_type: "manual",
-          embedding: [],
-          created_at: Date.now(),
-          metadata: {
-            verdict: vc.citationVerdict,
-            confidence: vc.citationConfidence,
-            scoreModifier: vc.scoreModifier,
-            smiles: vc.claim.smiles,
-            claim: vc.claim.claim.slice(0, 200),
-            citationDocId: vc.citationDocId,
-            citationEvidence: vc.citationEvidence,
-            citationGatePassed: vc.citationGatePassed,
-            verifiedAt: vc.verifiedAt,
-            phase: "verification_cycle",
-          },
-        });
-        added++;
-      }
+      const added = await feedbackVerdictsToCognition(verifiedCandidates, runId);
 
       cognitionItemsAdded = added;
       phases.cognition = completePhase(
         phases.cognition,
         added,
-        `Fed ${added} citation verdicts into evolve_cognition (run_id=${runId})`,
+        `Fed ${added} citation verdicts into evolve_cognition via feedbackVerdictsToCognition (run_id=${runId})`,
         { runId, added }
       );
     }

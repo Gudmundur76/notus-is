@@ -409,3 +409,225 @@ describe("verifyCandidates / verifiedAt timestamp", () => {
     expect(result.verifiedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// feedbackVerdictsToCognition tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { feedbackVerdictsToCognition } from "./candidate-claim";
+
+// ── Mock the lazy-imported DB modules ────────────────────────────────────────
+
+const mockAddCognitionItem = vi.fn(async () => 42);
+const mockGetOrCreateRun = vi.fn(async () => 7);
+const mockPoolExecute = vi.fn(async () => [[]] as [any[], any]);
+const mockPoolEnd = vi.fn(async () => {});
+
+vi.mock("./asi-evolve/cognition", () => ({
+  addCognitionItem: (...args: any[]) => mockAddCognitionItem(...args),
+}));
+
+vi.mock("./asi-evolve/database", () => ({
+  getOrCreateRun: (...args: any[]) => mockGetOrCreateRun(...args),
+}));
+
+vi.mock("mysql2/promise", () => ({
+  default: {
+    createPool: () => ({
+      execute: (...args: any[]) => mockPoolExecute(...args),
+      end: () => mockPoolEnd(),
+    }),
+  },
+  createPool: () => ({
+    execute: (...args: any[]) => mockPoolExecute(...args),
+    end: () => mockPoolEnd(),
+  }),
+}));
+
+// ── Helper: build a VerifiedCandidate for tests ───────────────────────────────
+
+function makeVerifiedCandidate(
+  verdict: import("./asi-evolve/citation-client").CitationVerdict,
+  overrides: Partial<VerifiedCandidate> = {}
+): VerifiedCandidate {
+  const candidate = makeCandidate({ id: Math.floor(Math.random() * 1000) });
+  const claim: CandidateClaim = {
+    candidateId: `cand-${candidate.id}`,
+    claim: `Compound CC shows pIC50=8.5 against HIV-1 protease`,
+    compoundName: `Compound-${candidate.id}`,
+    smiles: candidate.smiles,
+    pic50: candidate.pic50Predicted ?? 8.5,
+    source: "ChEMBL",
+    discoveryQuery: "HIV protease inhibitor",
+  };
+  return {
+    candidate,
+    claim,
+    citationVerdict: verdict,
+    citationConfidence: verdict === "Supported" ? 0.9 : verdict === "Contradicted" ? 0.8 : 0.4,
+    citationDocId: verdict === "Supported" ? "PDB:1HVR" : "",
+    citationEvidence: verdict === "Supported" ? ["PubMed:12345", "PDB:1HVR"] : [],
+    scoreModifier: verdict === "Supported" ? 0.5 : verdict === "Contradicted" ? -0.3 : 0.0,
+    verifiedAt: new Date().toISOString(),
+    citationGatePassed: verdict === "Supported",
+    ...overrides,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("feedbackVerdictsToCognition", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: no existing row (dedup check returns empty)
+    mockPoolExecute.mockResolvedValue([[] as any[], {} as any]);
+  });
+
+  it("returns 0 for empty input without calling addCognitionItem", async () => {
+    const count = await feedbackVerdictsToCognition([]);
+    expect(count).toBe(0);
+    expect(mockAddCognitionItem).not.toHaveBeenCalled();
+    expect(mockGetOrCreateRun).not.toHaveBeenCalled();
+  });
+
+  it("calls getOrCreateRun once regardless of input size", async () => {
+    const items = [
+      makeVerifiedCandidate("Supported"),
+      makeVerifiedCandidate("Contradicted"),
+      makeVerifiedCandidate("Ambiguous"),
+    ];
+    await feedbackVerdictsToCognition(items);
+    expect(mockGetOrCreateRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses provided runId instead of calling getOrCreateRun", async () => {
+    const items = [makeVerifiedCandidate("Supported")];
+    await feedbackVerdictsToCognition(items, 99);
+    expect(mockGetOrCreateRun).not.toHaveBeenCalled();
+    expect(mockAddCognitionItem).toHaveBeenCalledWith(
+      expect.objectContaining({ run_id: 99 })
+    );
+  });
+
+  it("inserts a Supported candidate with source_type=chembl and priority=10", async () => {
+    const vc = makeVerifiedCandidate("Supported");
+    await feedbackVerdictsToCognition([vc], 7);
+
+    expect(mockAddCognitionItem).toHaveBeenCalledTimes(1);
+    const arg = mockAddCognitionItem.mock.calls[0][0];
+    expect(arg.source_type).toBe("chembl");
+    expect(arg.metadata.priority).toBe(10);
+    expect(arg.metadata.verdict).toBe("Supported");
+    expect(arg.metadata.citationGatePassed).toBe(true);
+    expect(arg.content).toContain("[SUPPORTED");
+    expect(arg.content).toContain("Prioritise modifications");
+  });
+
+  it("inserts a Contradicted candidate with source_type=pubchem and priority=7", async () => {
+    const vc = makeVerifiedCandidate("Contradicted");
+    await feedbackVerdictsToCognition([vc], 7);
+
+    const arg = mockAddCognitionItem.mock.calls[0][0];
+    expect(arg.source_type).toBe("pubchem");
+    expect(arg.metadata.priority).toBe(7);
+    expect(arg.metadata.verdict).toBe("Contradicted");
+    expect(arg.content).toContain("[CONTRADICTED");
+    expect(arg.content).toContain("Avoid this scaffold class");
+  });
+
+  it("inserts an Ambiguous candidate with source_type=manual and priority=3", async () => {
+    const vc = makeVerifiedCandidate("Ambiguous");
+    await feedbackVerdictsToCognition([vc], 7);
+
+    const arg = mockAddCognitionItem.mock.calls[0][0];
+    expect(arg.source_type).toBe("manual");
+    expect(arg.metadata.priority).toBe(3);
+    expect(arg.metadata.verdict).toBe("Ambiguous");
+    expect(arg.content).toContain("[AMBIGUOUS");
+    expect(arg.content).toContain("weak signal");
+  });
+
+  it("skips duplicates: does not insert when dedup query returns an existing row", async () => {
+    // Simulate an existing row for the first candidate
+    mockPoolExecute.mockResolvedValueOnce([[{ id: 1 }] as any[], {} as any]);
+
+    const items = [makeVerifiedCandidate("Supported")];
+    const count = await feedbackVerdictsToCognition(items, 7);
+
+    expect(count).toBe(0);
+    expect(mockAddCognitionItem).not.toHaveBeenCalled();
+  });
+
+  it("inserts new rows and skips duplicates in the same batch", async () => {
+    // First candidate: duplicate (existing row found)
+    mockPoolExecute
+      .mockResolvedValueOnce([[{ id: 1 }] as any[], {} as any])  // dup
+      .mockResolvedValue([[] as any[], {} as any]);               // new
+
+    const items = [
+      makeVerifiedCandidate("Supported"),    // dup → skip
+      makeVerifiedCandidate("Contradicted"), // new → insert
+      makeVerifiedCandidate("Ambiguous"),    // new → insert
+    ];
+    const count = await feedbackVerdictsToCognition(items, 7);
+
+    expect(count).toBe(2);
+    expect(mockAddCognitionItem).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns the count of newly inserted items", async () => {
+    const items = [
+      makeVerifiedCandidate("Supported"),
+      makeVerifiedCandidate("Contradicted"),
+      makeVerifiedCandidate("Ambiguous"),
+    ];
+    const count = await feedbackVerdictsToCognition(items, 7);
+    expect(count).toBe(3);
+  });
+
+  it("stores candidateId, smiles, pic50, and claimSource in metadata", async () => {
+    const vc = makeVerifiedCandidate("Supported");
+    await feedbackVerdictsToCognition([vc], 7);
+
+    const arg = mockAddCognitionItem.mock.calls[0][0];
+    expect(arg.metadata.candidateId).toBe(vc.claim.candidateId);
+    expect(arg.metadata.smiles).toBe(vc.claim.smiles);
+    expect(arg.metadata.pic50).toBe(vc.claim.pic50);
+    expect(arg.metadata.claimSource).toBe(vc.claim.source);
+  });
+
+  it("truncates content to at most 1200 characters", async () => {
+    const longClaim = "X".repeat(2000);
+    const vc = makeVerifiedCandidate("Supported", {
+      claim: {
+        candidateId: "c1",
+        claim: longClaim,
+        compoundName: "LongCompound",
+        smiles: "CC(=O)O",
+        pic50: 8.5,
+        source: "ChEMBL",
+        discoveryQuery: "HIV",
+      },
+    });
+    await feedbackVerdictsToCognition([vc], 7);
+
+    const arg = mockAddCognitionItem.mock.calls[0][0];
+    expect(arg.content.length).toBeLessThanOrEqual(1200);
+  });
+
+  it("calls pool.end() even if addCognitionItem throws", async () => {
+    mockAddCognitionItem.mockRejectedValueOnce(new Error("DB write failed"));
+
+    const items = [makeVerifiedCandidate("Supported")];
+    await expect(feedbackVerdictsToCognition(items, 7)).rejects.toThrow("DB write failed");
+    expect(mockPoolEnd).toHaveBeenCalled();
+  });
+
+  it("includes phase=feedback_verdicts_to_cognition in metadata", async () => {
+    const vc = makeVerifiedCandidate("Supported");
+    await feedbackVerdictsToCognition([vc], 7);
+
+    const arg = mockAddCognitionItem.mock.calls[0][0];
+    expect(arg.metadata.phase).toBe("feedback_verdicts_to_cognition");
+  });
+});

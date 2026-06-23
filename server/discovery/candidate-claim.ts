@@ -419,3 +419,198 @@ export async function createRealCitationClient(): Promise<CitationClient> {
     verdictScoreModifier: mod.verdictScoreModifier,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// feedbackVerdictsToCognition
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Priority weights assigned to each citation verdict when seeding the
+ * evolve_cognition store.  Higher priority items are retrieved first during
+ * UCB1 sampling and Researcher query generation.
+ *
+ * - Supported      → highest priority: confirmed binding data is the most
+ *                    valuable signal for the next discovery iteration.
+ * - Contradicted   → high priority: contradictions must be surfaced so the
+ *                    Researcher can avoid repeating disproved hypotheses.
+ * - Ambiguous      → lower priority: uncertain evidence is still useful as
+ *                    weak signal but should not dominate the context window.
+ */
+const VERDICT_PRIORITY: Record<CitationVerdict, number> = {
+  Supported: 10,
+  Contradicted: 7,
+  "Partially Supported": 8,
+  Ambiguous: 3,
+  "Insufficient Evidence": 2,
+  "Out of Scope": 1,
+  "Needs Expert Review": 4,
+};
+
+/**
+ * Source-type mapping: each verdict class maps to the most semantically
+ * appropriate CognitionItem.source_type for downstream retrieval filtering.
+ */
+const VERDICT_SOURCE_TYPE: Record<
+  CitationVerdict,
+  "chembl" | "pubchem" | "manual"
+> = {
+  Supported: "chembl",              // confirmed binding data → ChEMBL-class
+  "Partially Supported": "chembl",  // partial evidence → still ChEMBL-class
+  Contradicted: "pubchem",          // disproved claim → PubChem-class
+  Ambiguous: "manual",              // uncertain → manual curation class
+  "Insufficient Evidence": "manual",
+  "Out of Scope": "manual",
+  "Needs Expert Review": "manual",
+};
+
+/**
+ * Build the natural-language content string stored in evolve_cognition for a
+ * single VerifiedCandidate.  The framing differs per verdict so the Researcher
+ * LLM receives appropriately weighted context.
+ */
+function buildCognitionContent(vc: VerifiedCandidate): string {
+  const pct = (vc.citationConfidence * 100).toFixed(0);
+  const mod = vc.scoreModifier >= 0 ? `+${vc.scoreModifier}` : `${vc.scoreModifier}`;
+  const doc = vc.citationDocId ? ` [doc: ${vc.citationDocId}]` : "";
+  const evid =
+    vc.citationEvidence.length > 0
+      ? ` Evidence: ${vc.citationEvidence.slice(0, 3).join(" | ")}.`
+      : "";
+
+  switch (vc.citationVerdict) {
+    case "Supported":
+      return (
+        `[SUPPORTED | confidence ${pct}% | score ${mod}]${doc} ` +
+        `${vc.claim.claim}` +
+        `${evid} ` +
+        `SMILES: ${vc.claim.smiles}. ` +
+        `Prioritise modifications to this scaffold in the next iteration.`
+      ).slice(0, 1200);
+
+    case "Contradicted":
+      return (
+        `[CONTRADICTED | confidence ${pct}% | score ${mod}]${doc} ` +
+        `${vc.claim.claim}` +
+        `${evid} ` +
+        `SMILES: ${vc.claim.smiles}. ` +
+        `Avoid this scaffold class; literature evidence refutes the claimed activity.`
+      ).slice(0, 1200);
+
+    case "Ambiguous":
+    default:
+      return (
+        `[AMBIGUOUS | confidence ${pct}% | score ${mod}]${doc} ` +
+        `${vc.claim.claim}` +
+        `${evid} ` +
+        `SMILES: ${vc.claim.smiles}. ` +
+        `Insufficient evidence; treat as weak signal only.`
+      ).slice(0, 1200);
+  }
+}
+
+/**
+ * Derive a stable, human-readable source identifier for a VerifiedCandidate.
+ * Format: "citation_verdict:<VERDICT>:<SMILES_PREFIX>:<DOC_ID_OR_NONE>"
+ */
+function buildCognitionSource(vc: VerifiedCandidate): string {
+  const smilesPrefix = vc.claim.smiles.slice(0, 24).replace(/\s+/g, "_");
+  const docPart = vc.citationDocId ? vc.citationDocId.slice(0, 20) : "none";
+  return `citation_verdict:${vc.citationVerdict}:${smilesPrefix}:${docPart}`;
+}
+
+/**
+ * Feed citation verdicts from a verification pass back into the evolve_cognition
+ * store so that the ASI-Evolve Researcher can use them as grounded context in
+ * the next discovery iteration.
+ *
+ * Behaviour per verdict:
+ *   - Supported      → high-priority item framed as confirmed binding evidence
+ *   - Contradicted   → medium-priority item flagging the disproved hypothesis
+ *   - Ambiguous      → low-priority item noting the uncertainty
+ *
+ * Deduplication strategy: because evolve_cognition has no unique constraint,
+ * a source-based lookup is performed before each insert.  If a row with the
+ * same `source` string already exists for the current run, the insert is
+ * skipped (soft-upsert).  This prevents the same verdict from being added
+ * multiple times across consecutive cycles while keeping the schema unchanged.
+ *
+ * @param verified  Array of VerifiedCandidate objects from verifyCandidates()
+ * @param runId     The ASI-Evolve run ID to associate items with.
+ *                  If omitted, getOrCreateRun() is called once to resolve it.
+ * @returns         The number of new items actually inserted (skips = not counted)
+ */
+export async function feedbackVerdictsToCognition(
+  verified: VerifiedCandidate[],
+  runId?: number
+): Promise<number> {
+  if (verified.length === 0) return 0;
+
+  // Lazy import to avoid pulling in DB/network deps during tests
+  const { addCognitionItem } = await import("./asi-evolve/cognition");
+  const { getOrCreateRun } = await import("./asi-evolve/database");
+  const mysql = await import("mysql2/promise");
+
+  // Resolve run ID once
+  const resolvedRunId = runId ?? (await getOrCreateRun());
+
+  // Build a pool for the dedup lookup (reuse env DATABASE_URL)
+  const pool = mysql.createPool(process.env.DATABASE_URL!);
+
+  let inserted = 0;
+
+  try {
+    for (const vc of verified) {
+      const source = buildCognitionSource(vc);
+
+      // ── Soft-upsert: skip if this source already exists for this run ──────
+      const [existing] = await pool.execute(
+        `SELECT id FROM evolve_cognition WHERE run_id = ? AND source = ? LIMIT 1`,
+        [resolvedRunId, source]
+      ) as [any[], any];
+
+      if (existing.length > 0) {
+        // Already seeded in a prior cycle — skip to avoid duplication
+        continue;
+      }
+
+      const content = buildCognitionContent(vc);
+      const sourceType = VERDICT_SOURCE_TYPE[vc.citationVerdict];
+      const priority = VERDICT_PRIORITY[vc.citationVerdict];
+
+      await addCognitionItem({
+        run_id: resolvedRunId,
+        content,
+        source,
+        source_type: sourceType,
+        embedding: [],
+        created_at: Date.now(),
+        metadata: {
+          // Core citation fields
+          verdict: vc.citationVerdict,
+          confidence: vc.citationConfidence,
+          scoreModifier: vc.scoreModifier,
+          citationDocId: vc.citationDocId,
+          citationEvidence: vc.citationEvidence,
+          citationGatePassed: vc.citationGatePassed,
+          verifiedAt: vc.verifiedAt,
+          // Candidate provenance
+          candidateId: vc.claim.candidateId,
+          smiles: vc.claim.smiles,
+          compoundName: vc.claim.compoundName,
+          pic50: vc.claim.pic50,
+          claimSource: vc.claim.source,
+          discoveryQuery: vc.claim.discoveryQuery,
+          // Routing metadata
+          priority,
+          phase: "feedback_verdicts_to_cognition",
+        },
+      });
+
+      inserted++;
+    }
+  } finally {
+    await pool.end();
+  }
+
+  return inserted;
+}

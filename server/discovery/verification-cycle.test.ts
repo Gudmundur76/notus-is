@@ -300,7 +300,8 @@ describe("Phase 4 COGNITION", () => {
 
     if (vi.mocked(addCognitionItem).mock.calls.length > 0) {
       const firstCall = vi.mocked(addCognitionItem).mock.calls[0][0];
-      expect(firstCall.source_type).toBe("manual");
+      // source_type is now verdict-specific: Supported → chembl, Contradicted → pubchem, Ambiguous → manual
+      expect(["chembl", "pubchem", "manual"]).toContain(firstCall.source_type);
       expect(firstCall.metadata).toHaveProperty("verdict");
       expect(firstCall.metadata).toHaveProperty("scoreModifier");
     }
