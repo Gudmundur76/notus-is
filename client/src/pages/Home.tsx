@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { Link } from "wouter";
 import { motion, useInView } from "framer-motion";
 import { ArrowRight, Zap, Target, Shield, BarChart3, FlaskConical, GitBranch, Clock, CheckCircle } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 
 const easeOutExpo = [0.16, 1, 0.3, 1] as [number, number, number, number];
 
@@ -9,6 +10,8 @@ const easeOutExpo = [0.16, 1, 0.3, 1] as [number, number, number, number];
 function HeroSection() {
   const words = ["Autonomous", "Drug", "Discovery", "for", "HIV", "Protease"];
   const tealWords = ["Drug", "Discovery"];
+  const { data: stats } = trpc.discovery.stats.useQuery(undefined, { refetchInterval: 30000 });
+  const { data: loopStatus } = trpc.discovery.loopStatus.useQuery(undefined, { refetchInterval: 10000 });
   return (
     <section className="relative min-h-screen flex items-center hero-mesh overflow-hidden">
       {/* Background glow */}
@@ -51,7 +54,7 @@ function HeroSection() {
           style={{ border: "1px solid rgba(16,185,129,0.3)", backgroundColor: "rgba(16,185,129,0.08)" }}
         >
           <div className="live-dot" />
-          <span className="section-label" style={{ color: "#10B981" }}>LIVE · HIV PROTEASE DISCOVERY · DAY 1 OF 30</span>
+          <span className="section-label" style={{ color: "#10B981" }}>LIVE · HIV PROTEASE DISCOVERY · DAY {stats?.dayNumber ?? 1} OF 30</span>
         </motion.div>
 
         {/* Headline */}
@@ -107,10 +110,10 @@ function HeroSection() {
           className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4"
         >
           {[
-            { label: "Corpus Records", value: "44", color: "#10B981" },
-            { label: "Candidates Evaluated", value: "150", color: "#06B6D4" },
-            { label: "Verified Records", value: "5", color: "#8B5CF6" },
-            { label: "Mean Confidence", value: "93%", color: "#F59E0B" },
+            { label: "Corpus Records", value: stats?.corpusSize?.toLocaleString() ?? "44", color: "#10B981" },
+            { label: "Candidates Evaluated", value: stats?.totalCandidates?.toLocaleString() ?? "0", color: "#06B6D4" },
+            { label: "Best pIC50", value: stats?.bestPic50 && stats.bestPic50 > 0 ? stats.bestPic50.toFixed(2) : "—", color: "#8B5CF6" },
+            { label: "Day", value: `${stats?.dayNumber ?? 1} / 30`, color: "#F59E0B" },
           ].map((stat) => (
             <div key={stat.label} className="stat-card">
               <div style={{ fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 700, color: stat.color }}>{stat.value}</div>
