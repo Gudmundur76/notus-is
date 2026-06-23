@@ -15,6 +15,14 @@
 import { z } from "zod";
 import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
+import { ALL_DOMAIN_CONFIGS } from "../discovery/domain-configs";
+import { DOMAIN_IDS } from "../../shared/types/domain.js";
+import type { DomainId } from "../../shared/types/domain.js";
+import {
+  runSingleDomain,
+  getTodayDomainSummaries,
+} from "../discovery/asi-evolve/domain-orchestrator";
+import { domainCycleSummaries } from "../../drizzle/schema";
 import {
   candidates as candidatesTable,
   corpus as corpusTable,
@@ -730,5 +738,114 @@ export const discoveryRouter = router({
       );
 
       return result;
+    }),
+
+  // ── Phase-E: Domain procedures ──────────────────────────────────────────────
+
+  /**
+   * Returns the full DomainConfig registry (all 12 domains).
+   * Used by the DomainSelector component.
+   */
+  domainConfigs: publicProcedure.query(() => {
+    return ALL_DOMAIN_CONFIGS.map((d) => ({
+      id: d.id,
+      name: d.name,
+      adapters: d.adapters,
+      scoringStrategy: d.scoringStrategy,
+      verificationVertical: d.verificationVertical,
+      quantumEnabled: d.quantumEnabled,
+      seedQueryCount: d.cognitionSeedQueries.length,
+    }));
+  }),
+
+  /**
+   * Returns per-domain stats: today's summaries + all-time aggregates.
+   */
+  domainStats: publicProcedure
+    .input(
+      z.object({ domainId: z.string().optional() }).optional()
+    )
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const todaySummaries = await getTodayDomainSummaries();
+
+      // All-time aggregates from domain_cycle_summaries
+      let allTimeRows: (typeof domainCycleSummaries.$inferSelect)[] = [];
+      if (db) {
+        try {
+          allTimeRows = input?.domainId
+            ? await db.select().from(domainCycleSummaries).where(eq(domainCycleSummaries.domainId, input.domainId))
+            : await db.select().from(domainCycleSummaries);
+        } catch { /* ignore */ }
+      }
+
+      // Aggregate by domainId
+      const aggregated: Record<string, {
+        domainId: string;
+        totalCycles: number;
+        totalClaimsVerified: number;
+        totalSupported: number;
+        totalContradicted: number;
+        totalAmbiguous: number;
+        bestPic50: number | null;
+        todayCyclesCompleted: number;
+        todayClaimsVerified: number;
+      }> = {};
+
+      for (const row of allTimeRows) {
+        if (!aggregated[row.domainId]) {
+          aggregated[row.domainId] = {
+            domainId: row.domainId,
+            totalCycles: 0,
+            totalClaimsVerified: 0,
+            totalSupported: 0,
+            totalContradicted: 0,
+            totalAmbiguous: 0,
+            bestPic50: null,
+            todayCyclesCompleted: 0,
+            todayClaimsVerified: 0,
+          };
+        }
+        const agg = aggregated[row.domainId]!;
+        agg.totalCycles += (row.cyclesCompleted ?? 0) + (row.cyclesFailed ?? 0);
+        agg.totalClaimsVerified += row.totalClaimsVerified ?? 0;
+        agg.totalSupported += row.totalSupported ?? 0;
+        agg.totalContradicted += row.totalContradicted ?? 0;
+        agg.totalAmbiguous += row.totalAmbiguous ?? 0;
+        if (row.bestPic50 != null) {
+          agg.bestPic50 = agg.bestPic50 == null
+            ? row.bestPic50
+            : Math.max(agg.bestPic50, row.bestPic50);
+        }
+      }
+
+      for (const today of todaySummaries) {
+        if (aggregated[today.domainId]) {
+          aggregated[today.domainId]!.todayCyclesCompleted = today.cyclesCompleted;
+          aggregated[today.domainId]!.todayClaimsVerified = today.totalClaimsVerified;
+        }
+      }
+
+      return {
+        domains: Object.values(aggregated),
+        todaySummaries,
+        totalDomainsActive: todaySummaries.filter((s) => s.cyclesCompleted > 0).length,
+      };
+    }),
+
+  /**
+   * Trigger a verification cycle for a specific domain (owner-only).
+   */
+  triggerDomainCycle: protectedProcedure
+    .input(z.object({ domainId: z.enum(DOMAIN_IDS) }))
+    .mutation(async ({ input, ctx }) => {
+      const ownerOpenId = process.env.OWNER_OPEN_ID;
+      if (ownerOpenId && ctx.user.openId !== ownerOpenId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only the project owner can trigger domain cycles",
+        });
+      }
+      return runSingleDomain(input.domainId as DomainId);
     }),
 });

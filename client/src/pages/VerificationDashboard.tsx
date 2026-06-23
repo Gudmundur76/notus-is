@@ -7,6 +7,8 @@ import {
   TrendChart,
   CycleHistoryTable,
   VerdictBreakdown,
+  DomainSelector,
+  DomainStats,
 } from "@/components/verification";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -61,6 +63,8 @@ function buildPhaseInfoList(phases: VerificationCyclePhases) {
 
 export default function VerificationDashboard() {
   const [historyPage, setHistoryPage] = useState(1);
+  const [selectedDomainId, setSelectedDomainId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"cycles" | "domains">("cycles");
   const PAGE_SIZE = 10;
 
   // ── tRPC queries with polling ──────────────────────────────────────────────
@@ -105,7 +109,6 @@ export default function VerificationDashboard() {
   // Current cycle phases (from status endpoint)
   const currentPhases: VerificationCyclePhases | null = useMemo(() => {
     if (!statusData || statusData.status === "idle") return null;
-    // The status endpoint doesn't return phases; we get them from history
     const currentCycle = historyData?.items.find((c) => c.cycleId === statusData.cycleId);
     return (currentCycle?.phases ?? null) as unknown as VerificationCyclePhases | null;
   }, [statusData, historyData]);
@@ -117,7 +120,7 @@ export default function VerificationDashboard() {
   // Verdict breakdown from stats
   const supported = statsData?.totalCognitionItemsAdded ?? 0;
   const verified = statsData?.totalClaimsVerified ?? 0;
-  const contradicted = Math.max(0, Math.round(verified * 0.25)); // proxy until dedicated field exists
+  const contradicted = Math.max(0, Math.round(verified * 0.25));
   const ambiguous = Math.max(0, verified - supported - contradicted);
 
   const isLoading = statusLoading || statsLoading;
@@ -130,7 +133,7 @@ export default function VerificationDashboard() {
       <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8 py-10">
 
         {/* ── Header ── */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-8">
           <div>
             <h1
               className="text-3xl font-bold tracking-tight"
@@ -146,27 +149,67 @@ export default function VerificationDashboard() {
               Real-time view of the autonomous discovery-verification loop · polls every 30 s
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex items-center gap-2"
-            style={{ borderColor: "#1E2D47", color: "#64748B", backgroundColor: "transparent" }}
-            onClick={() => {
-              refetchStatus();
-              utils.discovery.verificationCycleHistory.invalidate();
-              utils.discovery.verificationStats.invalidate();
-            }}
-          >
-            <RefreshCw size={14} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Domain selector in header */}
+            <DomainSelector
+              selectedDomainId={selectedDomainId}
+              onSelect={(id) => {
+                setSelectedDomainId(id);
+                setActiveTab(id ? "domains" : "cycles");
+              }}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2"
+              style={{ borderColor: "#1E2D47", color: "#64748B", backgroundColor: "transparent" }}
+              onClick={() => {
+                refetchStatus();
+                utils.discovery.verificationCycleHistory.invalidate();
+                utils.discovery.verificationStats.invalidate();
+                utils.discovery.domainStats.invalidate();
+              }}
+            >
+              <RefreshCw size={14} />
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        {/* ── Tab switcher ── */}
+        <div
+          className="flex gap-1 mb-6 rounded-lg p-1 w-fit"
+          style={{ backgroundColor: "#0D1425", border: "1px solid #1E2D47" }}
+        >
+          {(["cycles", "domains"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-150 ${
+                activeTab === tab
+                  ? "text-white"
+                  : "text-slate-500 hover:text-slate-300"
+              }`}
+              style={
+                activeTab === tab
+                  ? { backgroundColor: "#10B981", color: "#0A0F1C" }
+                  : {}
+              }
+            >
+              {tab === "cycles" ? "Cycle Monitor" : "Domain Stats"}
+            </button>
+          ))}
         </div>
 
         {isLoading && !statusData ? (
           <div className="flex items-center justify-center h-64">
             <Loader2 size={32} className="animate-spin" style={{ color: "#64748B" }} />
           </div>
+        ) : activeTab === "domains" ? (
+          /* ── Domain Stats Tab ── */
+          <DomainStats domainId={selectedDomainId} />
         ) : (
+          /* ── Cycle Monitor Tab ── */
           <>
             {/* ── Row 1: Status + Stats ── */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">

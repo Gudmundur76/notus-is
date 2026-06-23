@@ -287,7 +287,29 @@ export const verificationCycles = mysqlTable("verification_cycles", {
   bestPic50:            float("best_pic50"),
   errorMessage:         text("error_message"),
   durationMs:           int("duration_ms"),
+  // Domain tracking (Phase-E)
+  domainId:             varchar("domain_id", { length: 32 }).default("biomedical"),
 });
-
 export type VerificationCycleRow = typeof verificationCycles.$inferSelect;
 export type InsertVerificationCycleRow = typeof verificationCycles.$inferInsert;
+
+// ── Domain cycle summaries ────────────────────────────────────────────────────
+// One row per (domain, day) — aggregated stats for the monitoring dashboard.
+
+export const domainCycleSummaries = mysqlTable("domain_cycle_summaries", {
+  id:                   int("id").autoincrement().primaryKey(),
+  domainId:             varchar("domain_id", { length: 32 }).notNull(),
+  date:                 varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD UTC
+  cyclesCompleted:      int("cycles_completed").notNull().default(0),
+  cyclesFailed:         int("cycles_failed").notNull().default(0),
+  totalClaimsVerified:  int("total_claims_verified").notNull().default(0),
+  totalSupported:       int("total_supported").notNull().default(0),
+  totalContradicted:    int("total_contradicted").notNull().default(0),
+  totalAmbiguous:       int("total_ambiguous").notNull().default(0),
+  bestPic50:            float("best_pic50"),
+  avgDurationMs:        int("avg_duration_ms"),
+  evolvedQuery:         text("evolved_query"),
+  updatedAt:            timestamp("updated_at").defaultNow().onUpdateNow(),
+});
+export type DomainCycleSummaryRow = typeof domainCycleSummaries.$inferSelect;
+export type InsertDomainCycleSummaryRow = typeof domainCycleSummaries.$inferInsert;

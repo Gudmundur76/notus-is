@@ -16,6 +16,10 @@ import {
   verificationCycleHandler,
   registerVerificationCycleHeartbeat,
 } from "../scheduled/verification-cycle-loop";
+import {
+  domainSchedulerHandler,
+  registerDomainSchedulerHeartbeat,
+} from "../scheduled/domain-scheduler";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -50,6 +54,7 @@ async function startServer() {
   // All scheduled routes MUST start with /api/scheduled/
   app.post("/api/scheduled/discovery-loop", discoveryLoopHandler);
   app.post("/api/scheduled/verification-cycle", verificationCycleHandler);
+  app.post("/api/scheduled/domain-scheduler", domainSchedulerHandler);
 
   // tRPC API
   app.use(
@@ -83,6 +88,9 @@ async function startServer() {
     });
     registerVerificationCycleHeartbeat().catch(err => {
       console.warn("[Startup] Failed to register verification-cycle heartbeat:", err);
+    });
+    registerDomainSchedulerHeartbeat().catch(err => {
+      console.warn("[Startup] Failed to register domain-scheduler heartbeat:", err);
     });
   });
 }

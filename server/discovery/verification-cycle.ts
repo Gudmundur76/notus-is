@@ -52,6 +52,8 @@ import {
   type VerifiedCandidate,
 } from "./candidate-claim";
 import type { Candidate } from "../../drizzle/schema";
+import type { DomainConfig } from "../../shared/types/domain.js";
+import { DEFAULT_DOMAIN_ID } from "../../shared/types/domain.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types (re-exported from schema for convenience)
@@ -80,6 +82,8 @@ export interface VerificationCycle {
   bestPic50: number | null;
   errorMessage: string | null;
   durationMs: number | null;
+  /** Domain this cycle ran for (Phase-E) */
+  domainId: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,6 +179,7 @@ function rowToVerificationCycle(row: VerificationCycleRow): VerificationCycle {
     bestPic50: row.bestPic50 ?? null,
     errorMessage: row.errorMessage ?? null,
     durationMs: row.durationMs ?? null,
+    domainId: row.domainId ?? DEFAULT_DOMAIN_ID,
   };
 }
 
@@ -187,7 +192,16 @@ function rowToVerificationCycle(row: VerificationCycleRow): VerificationCycle {
  * Persists state to the `verification_cycles` table.
  * Never throws — all errors are captured in the returned cycle.
  */
-export async function runVerificationCycle(): Promise<VerificationCycle> {
+export async function runVerificationCycle(
+  domain?: DomainConfig
+): Promise<VerificationCycle> {
+  const domainId = domain?.id ?? DEFAULT_DOMAIN_ID;
+  const discoveryQuery =
+    domain?.cognitionSeedQueries?.[0] ??
+    "HIV protease inhibitor small molecule binding affinity pIC50";
+  const discoveryAdapters: string[] =
+    domain?.adapters ?? ["molecular", "structural_biology", "literature"];
+  const useQuantum = domain?.quantumEnabled ?? false;
   const cycleId = randomUUID();
   const globalStart = Date.now();
 
@@ -226,6 +240,7 @@ export async function runVerificationCycle(): Promise<VerificationCycle> {
         claimsVerified: 0,
         cognitionItemsAdded: 0,
         convergenceReached: false,
+        domainId,
       });
     } catch (err) {
       console.warn("[VerificationCycle] Failed to persist initial row:", err);
@@ -271,9 +286,9 @@ export async function runVerificationCycle(): Promise<VerificationCycle> {
 
   try {
     discoveryReport = await pythonBridge.query({
-      query: "HIV protease inhibitor small molecule binding affinity pIC50",
-      domains: ["molecular", "structural_biology", "literature"],
-      useQuantum: false,
+      query: discoveryQuery,
+      domains: discoveryAdapters,
+      useQuantum,
       maxResults: 50,
     });
 
@@ -686,6 +701,7 @@ export async function runVerificationCycle(): Promise<VerificationCycle> {
     bestPic50,
     errorMessage,
     durationMs,
+    domainId,
   };
 }
 
