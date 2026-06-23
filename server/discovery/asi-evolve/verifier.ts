@@ -39,6 +39,12 @@ import {
   type ClinicalTrialRecord,
   type CrossRefRecord,
 } from "./public-db";
+import {
+  verifyClaim,
+  buildCandidateClaim,
+  verdictScoreModifier,
+  type CitationVerdict,
+} from "./citation-client";
 
 const FETCH_TIMEOUT = 15_000;
 
@@ -48,6 +54,11 @@ export interface VerificationResult {
   confidence: number;
   notes: string;
   evidence: VerificationEvidence;
+  // citation.manus.space external verdict
+  citationVerdict?: CitationVerdict;
+  citationConfidence?: number;
+  citationSummary?: string;
+  citationEvidenceUrl?: string;
 }
 
 export interface VerificationEvidence {
@@ -283,6 +294,43 @@ export async function verifyCandidatePublicDb(
     notes.push(`pIC50 ${predictedPic50.toFixed(2)} in plausible range [7-12]`);
   }
 
+  // ── citation.manus.space external verification ────────────────────────────
+  // Build a verifiable claim string and submit to the ttruthdesk verification layer.
+  // This is the ground-truth gate: citation.manus.space queries PubMed, PDB, UniProt
+  // and returns a verdict backed by peer-reviewed literature.
+  let citationVerdict: CitationVerdict | undefined;
+  let citationConfidence: number | undefined;
+  let citationSummary: string | undefined;
+  let citationEvidenceUrl: string | undefined;
+
+  try {
+    const claimText = buildCandidateClaim({
+      name: smiles.slice(0, 30), // use SMILES prefix as identifier
+      smiles,
+      pic50: predictedPic50,
+      track: "unknown",
+      verificationSource: "HIV-1 protease (UniProt P04585)",
+    });
+    const citResult = await verifyClaim(claimText, "structural_biology");
+    if (citResult) {
+      citationVerdict = citResult.verdict;
+      citationConfidence = citResult.confidenceScore;
+      citationSummary = citResult.summary;
+      citationEvidenceUrl = citResult.evidenceSource;
+      // Apply score modifier: Supported = +0.5, Contradicted = -0.3
+      const modifier = verdictScoreModifier(citResult.verdict);
+      confidence += modifier;
+      sources.push(`citation.manus.space:${citResult.verdict}`);
+      notes.push(
+        `citation.manus.space: ${citResult.verdict} ` +
+        `(confidence=${citResult.confidenceScore.toFixed(2)}, ` +
+        `source=${citResult.evidenceSource})`
+      );
+    }
+  } catch {
+    // Non-fatal: citation.manus.space is an enhancement, not a hard dependency
+  }
+
   // ── Final verdict ─────────────────────────────────────────────────────────
   const verified = confidence >= 0.35 || sources.length >= 2;
 
@@ -292,6 +340,10 @@ export async function verifyCandidatePublicDb(
     confidence: Math.min(confidence, 1.0),
     notes: notes.join("; "),
     evidence,
+    citationVerdict,
+    citationConfidence,
+    citationSummary,
+    citationEvidenceUrl,
   };
 }
 

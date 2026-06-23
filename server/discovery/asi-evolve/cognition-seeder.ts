@@ -19,6 +19,10 @@
 
 import { addCognitionBatch, getCognitionCount } from "./cognition";
 import {
+  fetchHivProteaseVerifiedClaims,
+  listClaimsByVertical,
+} from "./citation-client";
+import {
   // PubChem
   fetchPubChemHIVCompounds,
   fetchPubChemBioassay,
@@ -245,6 +249,34 @@ export async function seedCognitionStore(
     console.log(`[Cognition] PubMed: +${allPubMed.length}`);
   } catch (e) { console.warn("[Cognition] PubMed failed:", (e as Error).message); }
 
+  // ── 11. citation.manus.space — external verified claims corpus ─────────────────────────────
+  // Pull the most recent Supported claims for HIV protease from the ttruthdesk corpus.
+  // These are peer-reviewed, database-verified claims that serve as ground truth.
+  try {
+    const hivClaims = await fetchHivProteaseVerifiedClaims(200);
+    for (const claim of hivClaims) {
+      const content =
+        `[citation.manus.space Verified] ${claim.claim_text} ` +
+        `(verdict=${claim.verdict}, confidence=${claim.confidence_score?.toFixed(2) ?? "N/A"}, ` +
+        `source=${claim.evidence_url ?? "N/A"}, ` +
+        `domain=${claim.vertical_domain})`;
+      items.push(makeItem(
+        runId,
+        content,
+        `citation.manus.space:claim_${claim.claim_id}`,
+        "europe_pmc",
+        {
+          claim_id: claim.claim_id,
+          verdict: claim.verdict,
+          confidence_score: claim.confidence_score,
+          pdb_id: claim.pdb_id,
+          page_url: claim.page_url,
+        }
+      ));
+    }
+    sources.citation_manus_space = hivClaims.length;
+    console.log(`[Cognition] citation.manus.space: +${hivClaims.length} verified HIV protease claims`);
+  } catch (e) { console.warn("[Cognition] citation.manus.space failed:", (e as Error).message); }
   // ── Manual heuristics (always added) ────────────────────────────────────────
   const heuristics = [
     "HIV-1 protease is a homodimeric aspartyl protease (99 aa per monomer). Active site: Asp25-Thr26-Gly27. Flap region (45-55) controls substrate access. Key resistance mutations: D30N, V32I, M46I/L, I47V/A, G48V, I50L/V, I54L/M/V, L76V, V82A/F/T/S, I84V, N88D/S, L90M.",
@@ -316,6 +348,39 @@ export async function refreshCognitionStore(runId: number): Promise<number> {
       newItems.push(makeItem(runId, crossRefToCognitionContent(w), `CrossRef:${w.doi}`, "crossRef", {
         doi: w.doi,
       }));
+    }
+  } catch { /* non-fatal */ }
+
+  // citation.manus.space — incremental refresh using updatedSince cursor
+  try {
+    const lastRefresh = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // last 24h
+    const citPage = await listClaimsByVertical("structural_biology", {
+      pageSize: 50,
+      updatedSince: lastRefresh,
+      verdict: "Supported",
+    });
+    for (const claim of citPage.claims) {
+      const content =
+        `[citation.manus.space Verified] ${claim.claim_text} ` +
+        `(verdict=${claim.verdict}, confidence=${claim.confidence_score?.toFixed(2) ?? "N/A"}, ` +
+        `source=${claim.evidence_url ?? "N/A"}, ` +
+        `domain=${claim.vertical_domain})`;
+      newItems.push(makeItem(
+        runId,
+        content,
+        `citation.manus.space:claim_${claim.claim_id}`,
+        "europe_pmc", // closest source_type for external verified literature
+        {
+          claim_id: claim.claim_id,
+          verdict: claim.verdict,
+          confidence_score: claim.confidence_score,
+          pdb_id: claim.pdb_id,
+          page_url: claim.page_url,
+        }
+      ));
+    }
+    if (citPage.claims.length > 0) {
+      console.log(`[Cognition] citation.manus.space: +${citPage.claims.length} verified claims (since ${lastRefresh})`);
     }
   } catch { /* non-fatal */ }
 

@@ -85,3 +85,38 @@
 - [x] researcher_diff prompt — Researcher generates diffs against base code (incremental evolution) (researcher.ts)
 - [x] BestSnapshotManager — persist best-scoring step outputs to DB (best-snapshot.ts)
 - [x] Run state persistence — serialize full run state (managedPrompts, islandSampler, stepCount, bestScore) for resumability across server restarts (run-state.ts)
+
+## Phase 5 — citation.manus.space Integration (Verification Layer)
+
+The ttruthdesk-platform at citation.manus.space is the external truth verification layer.
+Every best candidate and every ASI-Evolve analysis must be submitted there for claim-level verdict.
+The verified claims corpus also feeds back into the cognition store as ground truth.
+
+### Citation Client (server/discovery/asi-evolve/citation-client.ts)
+- [x] verifyClaim(claim: string) — POST /api/public/verify-claim, returns verdict + confidence + evidence
+- [x] submitDocument(title, rawText) — POST /api/trpc/documents.create, returns documentId
+- [x] pollDocumentStatus(docId) — GET /api/trpc/documents.get, polls until complete/failed
+- [x] searchClaims(q, vertical?) — GET /api/public/claims/search, returns matching verified claims
+- [x] listClaimsByVertical(vertical, updatedSince?) — GET /api/public/claims paginated
+
+### Verifier Integration (server/discovery/asi-evolve/verifier.ts)
+- [x] After each ASI-Evolve step: submit the step analysis text as a document to citation.manus.space
+- [x] Verify top-3 candidate claims ("Compound X shows pIC50=Y against HIV-1 protease") via verifyClaim
+- [x] Store citation verdict (Supported/Contradicted/Ambiguous) on evolve_nodes.metadata.citationVerdict
+- [x] Boost eval_score by +0.5 for Supported verdicts, penalise -0.3 for Contradicted
+
+### Cognition Seeder Integration (server/discovery/asi-evolve/cognition-seeder.ts)
+- [x] On startup: pull latest 200 structural_biology claims from citation.manus.space via listClaimsByVertical
+- [x] Convert each verified claim to a CognitionItem and upsert into evolve_cognition
+- [x] On each cycle: incremental refresh using updatedSince cursor (last seeded timestamp)
+
+### Database
+- [ ] Add citation_verdict, citation_doc_id, citation_confidence columns to evolve_nodes
+
+### tRPC
+- [x] discovery.citationVerifyClaim, citationSearchClaims, citationLatestClaims, citationVerifyCandidate — 4 tRPC procedures added
+- [x] discovery.submitForVerification — citationVerifyCandidate handles on-demand verification
+
+### Frontend
+- [ ] Dashboard: citation verdict badge on best candidate card (Supported / Contradicted / Ambiguous)
+- [ ] Findings page: citation verdict column in candidate table

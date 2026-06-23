@@ -242,6 +242,53 @@ export async function runEvolveStep(): Promise<{
   const newCognitionItems = await extractAndStoreCognition(runId, savedNode);
   cognitionAdded += newCognitionItems;
 
+  // ── citation.manus.space: verify the best candidate from this step ────────────
+  // Build a verifiable claim for the top candidate and submit to ttruthdesk.
+  // The verdict is stored in the node metadata and used to boost/penalise eval_score.
+  if (results.best_pic50 > 6.0 && results.top_candidates && results.top_candidates.length > 0) {
+    try {
+      const { verifyClaim: citVerify, buildCandidateClaim: buildClaim, verdictScoreModifier } =
+        await import("./citation-client");
+      const topCandidate = results.top_candidates[0];
+      const claimText = buildClaim({
+        name: topCandidate.smiles?.slice(0, 30) ?? stepName,
+        smiles: topCandidate.smiles ?? "",
+        pic50: results.best_pic50,
+        track: topCandidate.track ?? "unknown",
+        verificationSource: "HIV-1 protease (UniProt P04585)",
+      });
+      const citResult = await citVerify(claimText, "structural_biology");
+      if (citResult) {
+        // Persist verdict in node metadata
+        savedNode.metadata = {
+          ...savedNode.metadata,
+          citationVerdict: citResult.verdict,
+          citationConfidence: citResult.confidenceScore,
+          citationEvidenceUrl: citResult.evidenceSource,
+        };
+        // Apply score modifier to eval_score
+        const modifier = verdictScoreModifier(citResult.verdict);
+        if (modifier !== 0) {
+          savedNode.eval_score = Math.max(0, savedNode.eval_score + modifier);
+          savedNode.score = savedNode.eval_score;
+        }
+        // Persist updated metadata and score to DB
+        try {
+          const mysqlMod2 = await import("mysql2/promise");
+          const conn2 = await mysqlMod2.createConnection(process.env.DATABASE_URL!);
+          await conn2.execute(
+            `UPDATE evolve_nodes SET metadata = JSON_SET(COALESCE(metadata, '{}'), '$.citationVerdict', ?, '$.citationConfidence', ?, '$.citationEvidenceUrl', ?), score = ?, eval_score = ? WHERE id = ?`,
+            [citResult.verdict, citResult.confidenceScore, citResult.evidenceSource, savedNode.score, savedNode.eval_score, savedNode.id ?? 0]
+          );
+          await conn2.end();
+        } catch { /* non-fatal */ }
+        console.log(`[ASI-Evolve] citation.manus.space: ${citResult.verdict} (confidence=${citResult.confidenceScore.toFixed(2)}, modifier=${modifier >= 0 ? '+' : ''}${modifier})`);
+      }
+    } catch (e) {
+      console.warn("[ASI-Evolve] citation.manus.space verification failed:", (e as Error).message);
+    }
+  }
+
   // Check if this is a new global best
   const isNewBest = score > (bestNode?.score || 0);
 

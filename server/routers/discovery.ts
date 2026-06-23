@@ -27,6 +27,12 @@ import { eq, desc, asc, and, gte, lte, count, like, or } from "drizzle-orm";
 import { getLoopStats, getLoopStatus, runSingleCycle } from "../discovery/loop";
 import { getEvolveStatus, runEvolveStep } from "../discovery/asi-evolve/orchestrator";
 import { getAllNodes, getBestNode, getOrCreateRun } from "../discovery/asi-evolve/database";
+import {
+  verifyClaim,
+  searchClaims,
+  listClaimsByVertical,
+  buildCandidateClaim,
+} from "../discovery/asi-evolve/citation-client";
 import { TRPCError } from "@trpc/server";
 
 export const discoveryRouter = router({
@@ -302,6 +308,69 @@ export const discoveryRouter = router({
     });
     return { triggered: true, message: "ASI-Evolve step started" };
   }),
+
+  // ── citation.manus.space: verify a single claim ──────────────────────────────
+  citationVerifyClaim: publicProcedure
+    .input(z.object({
+      claim: z.string().min(10).max(2000),
+      vertical: z.string().default("structural_biology"),
+    }))
+    .mutation(async ({ input }) => {
+      const result = await verifyClaim(input.claim, input.vertical);
+      return result ?? { verdict: "Insufficient Evidence" as const, confidenceScore: 0, evidenceSource: "", summary: "" };
+    }),
+
+  // ── citation.manus.space: search verified claims corpus ──────────────────────
+  citationSearchClaims: publicProcedure
+    .input(z.object({
+      q: z.string().min(2).max(200),
+      limit: z.number().int().min(1).max(50).default(10),
+    }))
+    .query(async ({ input }) => {
+      return searchClaims(input.q, { limit: input.limit, vertical: "structural_biology" });
+    }),
+
+  // ── citation.manus.space: latest verified claims for HIV protease ─────────────
+  citationLatestClaims: publicProcedure
+    .input(z.object({
+      page: z.number().int().min(1).default(1),
+      pageSize: z.number().int().min(1).max(100).default(20),
+    }))
+    .query(async ({ input }) => {
+      return listClaimsByVertical("structural_biology", {
+        page: input.page,
+        pageSize: input.pageSize,
+        verdict: "Supported",
+      });
+    }),
+
+  // ── citation.manus.space: build and verify a candidate claim ─────────────────
+  citationVerifyCandidate: publicProcedure
+    .input(z.object({
+      smiles: z.string().min(1).max(500),
+      pic50: z.number(),
+      name: z.string().optional(),
+      track: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const claimText = buildCandidateClaim({
+        name: input.name ?? input.smiles.slice(0, 30),
+        smiles: input.smiles,
+        pic50: input.pic50,
+        track: input.track ?? "unknown",
+        verificationSource: "HIV-1 protease (UniProt P04585)",
+      });
+      const result = await verifyClaim(claimText, "structural_biology");
+      return {
+        claimText,
+        verdict: result?.verdict ?? "Insufficient Evidence",
+        confidenceScore: result?.confidenceScore ?? 0,
+        evidenceSource: result?.evidenceSource ?? "",
+        summary: result?.summary ?? "",
+        citationUrl: result ? "https://citation.manus.space" : null,
+      };
+    }),
+
 
   // ── Track distribution ───────────────────────────────────────────────────────
   trackDistribution: publicProcedure.query(async () => {
