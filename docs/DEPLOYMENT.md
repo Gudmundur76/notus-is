@@ -82,6 +82,8 @@ cp .env.example .env
 | `QUAFU_API_KEY` | — | Quafu ScQ hardware API key |
 | `QUAFU_API_URL` | `https://quafu.baqis.ac.cn/qbackend/scq_u3cx` | Override Quafu endpoint |
 | `CITATION_API_KEY` | — | citation.manus.space API key (public endpoints work without it) |
+| `PYTHON_ENGINE_PATH` | `../../asi-evolve-discovery-engine` | Absolute path to the ASI-Evolve engine directory (Option A) |
+| `PYTHON_BIN` | `python3` | Python interpreter to use for bridge subprocesses |
 | `PYTHON_BRIDGE_TIMEOUT_MS` | `30000` | Timeout for Python bridge queries |
 | `NODE_ENV` | `development` | Set to `production` for deployment |
 | `PORT` | auto | Server port (do not hardcode) |
@@ -121,16 +123,37 @@ pnpm db:push  # idempotent — safe to run again
 
 ## Step 4: Python Environment
 
-The Python bridge (`server/discovery/python-bridge.ts`) spawns `python3` subprocesses to query 50 external data adapters. Install the required packages:
+The Python bridge (`server/discovery/python-bridge.ts`) spawns `python3` subprocesses to query 50 external data adapters.
+
+### Option A — Install from the discovery engine repo (recommended)
+
+If you are running the full ASI-Evolve discovery engine alongside notus.is:
 
 ```bash
-pip3 install -r requirements.txt
+git clone https://github.com/Gudmundur76/asi-evolve-discovery-engine.git
+cd asi-evolve-discovery-engine
+pip3 install -r requirements.txt   # installs pyqpanda3, httpx, pyyaml, numpy, and all adapters
+cd ../notus-is
+export PYTHON_ENGINE_PATH=/absolute/path/to/asi-evolve-discovery-engine
 ```
 
-If `requirements.txt` is not present, install manually:
+Then add `PYTHON_ENGINE_PATH` to your `.env`:
+
+```env
+PYTHON_ENGINE_PATH=/absolute/path/to/asi-evolve-discovery-engine
+```
+
+When `PYTHON_ENGINE_PATH` is set, the bridge resolves `main.py` relative to that directory and invokes it directly instead of the bundled adapter scripts. If unset, the bridge defaults to `../../asi-evolve-discovery-engine` relative to the project root.
+
+### Option B — Install pyqpanda3 and adapters separately
+
+If you are running only notus.is without the external engine repo:
 
 ```bash
 pip3 install \
+  pyqpanda3 \
+  httpx \
+  pyyaml \
   requests \
   biopython \
   rdkit-pypi \
@@ -138,11 +161,12 @@ pip3 install \
   numpy \
   scikit-learn \
   chembl-webresource-client \
-  pubchempy \
-  pyqpanda3
+  pubchempy
 ```
 
-Verify the bridge works:
+The bundled adapter scripts in `server/discovery/adapters/` will be used automatically.
+
+### Verify the bridge
 
 ```bash
 python3 server/discovery/adapters/pubchem_adapter.py "HIV protease inhibitor" 3
