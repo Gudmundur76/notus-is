@@ -277,8 +277,16 @@ export async function runEvolveStep(): Promise<{
           const mysqlMod2 = await import("mysql2/promise");
           const conn2 = await mysqlMod2.createConnection(process.env.DATABASE_URL!);
           await conn2.execute(
-            `UPDATE evolve_nodes SET metadata = JSON_SET(COALESCE(metadata, '{}'), '$.citationVerdict', ?, '$.citationConfidence', ?, '$.citationEvidenceUrl', ?), score = ?, eval_score = ? WHERE id = ?`,
-            [citResult.verdict, citResult.confidenceScore, citResult.evidenceSource, savedNode.score, savedNode.eval_score, savedNode.id ?? 0]
+            `UPDATE evolve_nodes SET
+              metadata = JSON_SET(COALESCE(metadata, '{}'), '$.citationVerdict', ?, '$.citationConfidence', ?, '$.citationEvidenceUrl', ?),
+              citation_verdict = ?,
+              citation_confidence = ?,
+              score = ?,
+              eval_score = ?
+            WHERE id = ?`,
+            [citResult.verdict, citResult.confidenceScore, citResult.evidenceSource,
+             citResult.verdict, citResult.confidenceScore,
+             savedNode.score, savedNode.eval_score, savedNode.id ?? 0]
           );
           await conn2.end();
         } catch { /* non-fatal */ }

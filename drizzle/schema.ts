@@ -212,6 +212,10 @@ export const evolveNodes = mysqlTable("evolve_nodes", {
   isBest: boolean("is_best").notNull().default(false),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   metadata: json("metadata"),
+  // citation.manus.space verdict fields (Phase 5)
+  citationVerdict: varchar("citation_verdict", { length: 50 }),
+  citationDocId: varchar("citation_doc_id", { length: 100 }),
+  citationConfidence: double("citation_confidence"),
 });
 
 export type EvolveNode = typeof evolveNodes.$inferSelect;

@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { motion, useInView } from "framer-motion";
-import { Activity, Zap, FlaskConical, GitBranch, CheckCircle, Clock, AlertCircle, RefreshCw, Brain, TrendingUp, Database } from "lucide-react";
+import { Activity, Zap, FlaskConical, GitBranch, CheckCircle, Clock, AlertCircle, RefreshCw, Brain, TrendingUp, Database, ExternalLink } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 const easeOutExpo = [0.16, 1, 0.3, 1] as [number, number, number, number];
@@ -412,9 +412,41 @@ export default function Dashboard() {
           {/* Best evolve candidate */}
           {evolveBest?.results?.best_smiles && (
             <div className="mt-4 p-4 rounded-xl" style={{ backgroundColor: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)" }}>
-              <div className="flex items-center gap-2 mb-2">
-                <Zap size={12} style={{ color: "#8B5CF6" }} />
-                <span className="text-xs font-mono" style={{ color: "#8B5CF6" }}>BEST EVOLVE CANDIDATE — pIC50 {evolveBest.results.best_pic50?.toFixed(2)} — {evolveBest.name}</span>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <Zap size={12} style={{ color: "#8B5CF6" }} />
+                  <span className="text-xs font-mono" style={{ color: "#8B5CF6" }}>BEST EVOLVE CANDIDATE — pIC50 {evolveBest.results.best_pic50?.toFixed(2)} — {evolveBest.name}</span>
+                </div>
+                {/* citation.manus.space verdict badge */}
+                {Boolean((evolveBest.metadata as Record<string, unknown>)?.citationVerdict) && (
+                  <a
+                    href="https://citation.manus.space"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono flex-shrink-0"
+                    style={{
+                      backgroundColor:
+                        evolveBest.metadata.citationVerdict === "Supported" ? "rgba(16,185,129,0.15)" :
+                        evolveBest.metadata.citationVerdict === "Contradicted" ? "rgba(239,68,68,0.15)" :
+                        "rgba(245,158,11,0.15)",
+                      border:
+                        evolveBest.metadata.citationVerdict === "Supported" ? "1px solid rgba(16,185,129,0.4)" :
+                        evolveBest.metadata.citationVerdict === "Contradicted" ? "1px solid rgba(239,68,68,0.4)" :
+                        "1px solid rgba(245,158,11,0.4)",
+                      color:
+                        evolveBest.metadata.citationVerdict === "Supported" ? "#10B981" :
+                        evolveBest.metadata.citationVerdict === "Contradicted" ? "#EF4444" :
+                        "#F59E0B",
+                    }}
+                    title={`citation.manus.space: ${String(evolveBest.metadata.citationVerdict)} (confidence ${(((evolveBest.metadata.citationConfidence as number) ?? 0) * 100).toFixed(0)}%)`}
+                  >
+                    <ExternalLink size={10} />
+                    <span>{String(evolveBest.metadata.citationVerdict)}</span>
+                    {evolveBest.metadata.citationConfidence != null && (
+                      <span style={{ opacity: 0.7 }}>{(((evolveBest.metadata.citationConfidence as number)) * 100).toFixed(0)}%</span>
+                    )}
+                  </a>
+                )}
               </div>
               <div className="font-mono text-xs p-2 rounded-lg break-all" style={{ backgroundColor: "rgba(0,0,0,0.3)", color: "#94A3B8" }}>
                 {evolveBest.results.best_smiles}

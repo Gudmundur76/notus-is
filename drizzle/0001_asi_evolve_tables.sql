@@ -53,3 +53,9 @@ CREATE TABLE IF NOT EXISTS `evolve_cognition` (
   `metadata` json,
   CONSTRAINT `evolve_cognition_id` PRIMARY KEY(`id`)
 );
+
+-- citation.manus.space verdict columns (added Phase 5)
+ALTER TABLE evolve_nodes
+  ADD COLUMN IF NOT EXISTS citation_verdict VARCHAR(50) NULL,
+  ADD COLUMN IF NOT EXISTS citation_doc_id VARCHAR(100) NULL,
+  ADD COLUMN IF NOT EXISTS citation_confidence DOUBLE NULL;

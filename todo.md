@@ -111,12 +111,12 @@ The verified claims corpus also feeds back into the cognition store as ground tr
 - [x] On each cycle: incremental refresh using updatedSince cursor (last seeded timestamp)
 
 ### Database
-- [ ] Add citation_verdict, citation_doc_id, citation_confidence columns to evolve_nodes
+- [x] Add citation_verdict, citation_doc_id, citation_confidence columns to evolve_nodes (ALTER TABLE applied + orchestrator writes them)
 
 ### tRPC
 - [x] discovery.citationVerifyClaim, citationSearchClaims, citationLatestClaims, citationVerifyCandidate — 4 tRPC procedures added
 - [x] discovery.submitForVerification — citationVerifyCandidate handles on-demand verification
 
 ### Frontend
-- [ ] Dashboard: citation verdict badge on best candidate card (Supported / Contradicted / Ambiguous)
-- [ ] Findings page: citation verdict column in candidate table
+- [x] Dashboard: citation verdict badge on best candidate card (Supported / Contradicted / Ambiguous) — links to citation.manus.space
+- [x] Findings page: citation verdict badge on each CandidateCard — CITE: Supported/Contradicted/Ambiguous badge with link

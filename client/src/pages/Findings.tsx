@@ -74,6 +74,33 @@ function CandidateCard({ candidate, index }: { candidate: {
                 NOVEL
               </span>
             )}
+            {/* citation.manus.space verdict badge */}
+            {Boolean((candidate as Record<string, unknown>).citationVerdict) && (
+              <a
+                href="https://citation.manus.space"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full px-2 py-0.5 text-xs font-mono flex items-center gap-1"
+                style={{
+                  backgroundColor:
+                    (candidate as Record<string, unknown>).citationVerdict === "Supported" ? "rgba(16,185,129,0.1)" :
+                    (candidate as Record<string, unknown>).citationVerdict === "Contradicted" ? "rgba(239,68,68,0.1)" :
+                    "rgba(245,158,11,0.1)",
+                  color:
+                    (candidate as Record<string, unknown>).citationVerdict === "Supported" ? "#10B981" :
+                    (candidate as Record<string, unknown>).citationVerdict === "Contradicted" ? "#EF4444" :
+                    "#F59E0B",
+                  border:
+                    (candidate as Record<string, unknown>).citationVerdict === "Supported" ? "1px solid rgba(16,185,129,0.2)" :
+                    (candidate as Record<string, unknown>).citationVerdict === "Contradicted" ? "1px solid rgba(239,68,68,0.2)" :
+                    "1px solid rgba(245,158,11,0.2)",
+                }}
+                onClick={e => e.stopPropagation()}
+                title="Verified by citation.manus.space"
+              >
+                <span>CITE: {String((candidate as Record<string, unknown>).citationVerdict)}</span>
+              </a>
+            )}
           </div>
 
           <div className="font-mono text-xs truncate mb-3" style={{ color: "#94A3B8" }}>
