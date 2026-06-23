@@ -10,7 +10,10 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "diagnostic": "tsx server/discovery/integration-test.ts",
+    "test-quantum": "tsx server/discovery/test-quantum.ts",
+    "setup": "./scripts/setup.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
