@@ -6,6 +6,7 @@
 
 import { invokeLLM } from "../../_core/llm";
 import { retrieveCognition } from "./cognition";
+import { parseDiffBlocks, applyDiffBlocks, formatDiffSummary } from "./diff";
 import type { EvolveNode, SampledContext } from "./types";
 
 // ─── Strategy Generation ──────────────────────────────────────────────────────
@@ -24,12 +25,25 @@ export interface ResearchStrategy {
  * - Reads cognition store for relevant knowledge
  * - Reads top-performing nodes for what has worked
  * - Proposes a new strategy that builds on successes and avoids failures
+ *
+ * When baseCode is provided, uses researcher_diff mode (SEARCH/REPLACE diffs)
+ * to generate incremental modifications rather than full rewrites.
+ * This mirrors the researcher_diff.jinja2 prompt from the Python source.
  */
 export async function generateStrategy(
   runId: number,
   context: SampledContext,
-  stepName: string
+  stepName: string,
+  options?: {
+    baseCode?: string;       // If provided, use diff mode
+    systemPrompt?: string;   // Manager-tuned system prompt
+  }
 ): Promise<ResearchStrategy> {
+  const usesDiffMode = !!(options?.baseCode && options.baseCode.trim().length > 0);
+
+  if (usesDiffMode) {
+    return generateStrategyDiff(runId, context, stepName, options!.baseCode!, options?.systemPrompt);
+  }
   // Retrieve relevant cognition items
   const cognitionQuery = `HIV protease inhibitor binding affinity pIC50 scaffold design ${stepName}`;
   const cognitionItems = await retrieveCognition(runId, cognitionQuery, 8, 0.05);
@@ -227,4 +241,118 @@ Provide a concise analysis (3-5 sentences) covering:
 2. What failed and why
 3. Specific structural insights for future strategies
 4. Recommended next modification`;
+}
+
+/**
+ * Generate incremental modifications to an existing strategy using SEARCH/REPLACE diffs.
+ * Mirrors the researcher_diff.jinja2 prompt from the Python source.
+ *
+ * The LLM receives the base code and generates SEARCH/REPLACE blocks
+ * that make targeted improvements rather than full rewrites.
+ */
+async function generateStrategyDiff(
+  runId: number,
+  context: SampledContext,
+  stepName: string,
+  baseCode: string,
+  systemPrompt?: string
+): Promise<ResearchStrategy> {
+  const cognitionQuery = `HIV protease inhibitor binding affinity pIC50 scaffold design ${stepName}`;
+  const cognitionItems = await retrieveCognition(runId, cognitionQuery, 8, 0.05);
+
+  const cognitionContext = cognitionItems
+    .map((c) => `[${c.item.source}] ${c.item.content}`)
+    .join("\n\n");
+
+  const topNodesSummary = context.nodes.length > 0
+    ? context.nodes.slice(0, 3).map((n, i) =>
+        `${i + 1}. "${n.name}" (score=${(n.score || 0).toFixed(3)})\n   Motivation: ${n.motivation.slice(0, 150)}\n   Analysis: ${n.analysis?.slice(0, 150) || "N/A"}`
+      ).join("\n")
+    : "No previous approaches.";
+
+  const prompt = `${systemPrompt || "You are an expert computational chemist designing HIV-1 protease inhibitors."}
+
+## Task Description
+Maximize eval_score = 0.6 * mean_pIC50_top10 + 0.3 * verification_rate + 0.1 * admet_pass_rate
+Target: eval_score > 9.5 (mean pIC50 > 9.5 for top 10 candidates)
+
+## Context from Previous Experiments
+${topNodesSummary}
+
+## Related Knowledge
+${cognitionContext || "No cognition items available yet."}
+
+## Current Program (Base Code to Modify)
+\`\`\`
+${baseCode}
+\`\`\`
+
+## Instructions
+You need to make **incremental modifications** to the current program, not a complete rewrite.
+Use the SEARCH/REPLACE format below to specify your changes:
+
+\`\`\`
+<<<<<<< SEARCH
+# Original code to find and replace (must match exactly)
+=======
+# New replacement code
+>>>>>>> REPLACE
+\`\`\`
+
+**IMPORTANT:**
+1. Do not rewrite the entire program - focus on targeted improvements
+2. SEARCH blocks must match exactly with content in the base code (including indentation and whitespace)
+3. Be thoughtful about your changes and explain your reasoning thoroughly
+4. Make sure your modifications maintain the same inputs and outputs as the original program
+
+**Response Format:**
+You MUST respond in TWO parts:
+
+**Part 1: XML Tags (required)**
+<name>approach_name</name>
+<motivation>why these changes and expected improvements</motivation>
+
+**Part 2: SEARCH/REPLACE blocks (required)**
+Then, immediately after the XML tags, provide your SEARCH/REPLACE diff blocks.
+Do NOT put the diff blocks inside XML tags.`;
+
+  try {
+    const response = await invokeLLM({
+      messages: [
+        { role: "user", content: prompt },
+      ],
+    });
+
+    const rawContent = response?.choices?.[0]?.message?.content;
+    if (!rawContent) throw new Error("Empty LLM response");
+    const content = typeof rawContent === "string" ? rawContent : JSON.stringify(rawContent);
+
+    // Parse XML name and motivation
+    const nameMatch = content.match(/<name>([\s\S]*?)<\/name>/);
+    const motivationMatch = content.match(/<motivation>([\s\S]*?)<\/motivation>/);
+    const name = nameMatch ? nameMatch[1].trim() : `diff_${stepName}`;
+    const motivation = motivationMatch ? motivationMatch[1].trim() : "Incremental improvement";
+
+    // Parse and apply SEARCH/REPLACE diff blocks
+    const diffBlocks = parseDiffBlocks(content);
+    const [updatedCode, appliedCount] = applyDiffBlocks(baseCode, diffBlocks);
+
+    console.log(
+      `[Researcher-Diff] ${stepName}: parsed ${diffBlocks.length} diff blocks, applied ${appliedCount}`
+    );
+    if (diffBlocks.length > 0) {
+      console.log(`[Researcher-Diff] Summary:\n${formatDiffSummary(diffBlocks)}`);
+    }
+
+    return {
+      name,
+      motivation,
+      approach: `Diff-based incremental modification: ${appliedCount}/${diffBlocks.length} blocks applied`,
+      expected_improvement: "Targeted improvement via SEARCH/REPLACE diff",
+      code_template: updatedCode,
+    };
+  } catch (e) {
+    console.warn("[Researcher-Diff] Failed, falling back to full rewrite:", e);
+    return generateStrategy(runId, context, stepName);
+  }
 }
