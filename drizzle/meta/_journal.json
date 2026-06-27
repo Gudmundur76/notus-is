@@ -22,6 +22,13 @@
       "when": 1782236303678,
       "tag": "0002_mysterious_susan_delgado",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1782400000000,
+      "tag": "0003_bug_fixes",
+      "breakpoints": true
     }
   ]
 }

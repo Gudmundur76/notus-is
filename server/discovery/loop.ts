@@ -22,6 +22,7 @@ import {
   corpus as corpusTable,
   cycles as cyclesTable,
   dailyLogs,
+  verificationCycles,
 } from "../../drizzle/schema";
 import { eq, desc, count } from "drizzle-orm";
 import { HIV_PROTEASE_CORPUS } from "./corpus-data";
@@ -550,7 +551,7 @@ export async function getLoopStats(): Promise<{
 
   const [cycleStats, candidateStats, corpusStat, cognitionStat, lastCycle] =
     await Promise.all([
-      db.select({ count: count() }).from(cyclesTable),
+      db.select({ count: count() }).from(verificationCycles),
       db.select({ count: count() }).from(candidatesTable),
       db.select({ count: count() }).from(corpusTable),
       db.select().from(cognitionStore).where(eq(cognitionStore.targetChemblId, "CHEMBL247")).limit(1),

@@ -298,10 +298,13 @@ export async function executeStrategy(
   const best = top10[0];
 
   // ASI-Evolve eval_score formula
+  // Fix 6: Use 1 decimal place instead of integer rounding for better score diversity
   const evalScore =
-    0.6 * top10MeanPic50 +
-    0.3 * verificationRate * 10 + // scale 0-1 → 0-10
-    0.1 * admetPassRate * 10;     // scale 0-1 → 0-10
+    Math.round((
+      0.6 * top10MeanPic50 +
+      0.3 * verificationRate * 10 + // scale 0-1 → 0-10
+      0.1 * admetPassRate * 10      // scale 0-1 → 0-10
+    ) * 10) / 10;
 
   return {
     eval_score: evalScore,

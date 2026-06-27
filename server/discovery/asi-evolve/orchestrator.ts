@@ -174,7 +174,8 @@ export async function runEvolveStep(): Promise<{
     if (!islandSampler) {
       islandSampler = new IslandSampler();
     }
-    const allNodes = await sampleNodes(runId, 20, "random", 1.414);
+    // Fix 6: Increased population from 20 to 50 for better score diversity
+    const allNodes = await sampleNodes(runId, 50, "random", 1.414);
     sampledNodes = islandSampler.sample(allNodes, 3);
     samplingAlgorithmUsed = "island";
   } else {

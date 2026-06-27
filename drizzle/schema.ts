@@ -313,3 +313,16 @@ export const domainCycleSummaries = mysqlTable("domain_cycle_summaries", {
 });
 export type DomainCycleSummaryRow = typeof domainCycleSummaries.$inferSelect;
 export type InsertDomainCycleSummaryRow = typeof domainCycleSummaries.$inferInsert;
+
+// ── Approval requests ─────────────────────────────────────────────────────────
+// Fix 7: auto_approved column added for automated approval tracking.
+export const approvalRequests = mysqlTable("approval_requests", {
+  id:           int("id").autoincrement().primaryKey(),
+  requestId:    varchar("request_id", { length: 36 }).notNull().unique(),
+  status:       mysqlEnum("status", ["pending", "approved", "rejected"]).notNull().default("pending"),
+  autoApproved: boolean("auto_approved").default(false),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  updatedAt:    timestamp("updated_at").defaultNow().onUpdateNow(),
+});
+export type ApprovalRequestRow = typeof approvalRequests.$inferSelect;
+export type InsertApprovalRequestRow = typeof approvalRequests.$inferInsert;

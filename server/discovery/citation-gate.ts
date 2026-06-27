@@ -55,6 +55,8 @@ const CITATION_IS_BASE = "https://citation.manus.space";
 
 const MIN_CONFIDENCE_THRESHOLD = 0.7;
 const PUBMED_SEARCH_LIMIT = 5;
+// Fix 3: Increased from 60000 to 90000 to prevent batch timeout on slow citation lookups
+const BATCH_TIMEOUT_MS = 90000;
 
 // HIV protease ChEMBL target ID
 const HIV_PROTEASE_CHEMBL_ID = "CHEMBL247";
