@@ -469,6 +469,36 @@ export async function runEvolveStep(): Promise<{
     } catch { /* non-fatal */ }
   }
 
+  // ── GitHub bus: publish best candidate to manus-persistent-drive/bus/notus-is/results/ ──
+  // Allows generic-signal-api to read best candidates without direct HTTP.
+  if (isNewBest && results.best_pic50 > 6.0) {
+    try {
+      const { writeDiscoveryResultToBus } = await import('../busWriter');
+      const topCandidates = (results.top_candidates ?? []).slice(0, 5).map((c: Record<string, unknown>) => ({
+        smiles: (c.smiles as string) ?? '',
+        pic50: (c.pic50 as number) ?? results.best_pic50,
+        track: (c.track as string) ?? 'unknown',
+        verified: (c.verified as boolean) ?? false,
+        citationVerdict: (c.citation_verdict as string) ?? undefined,
+        citationConfidence: (c.citation_confidence as number) ?? undefined,
+        verificationSources: (c.verification_sources as string[]) ?? [],
+      }));
+      writeDiscoveryResultToBus({
+        runId,
+        target: 'HIV-1 Protease',
+        bestCandidate: topCandidates[0] ?? {
+          smiles: results.best_smiles,
+          pic50: results.best_pic50,
+          track: 'unknown',
+          verified: false,
+        },
+        convergenceCandidates: topCandidates,
+        cycleScore: score,
+        noveltySignal: `Step ${stepNum}: New best pIC50=${results.best_pic50.toFixed(2)}`,
+      });
+    } catch { /* non-fatal */ }
+  }
+
   return {
     step_name: stepName,
     score,
